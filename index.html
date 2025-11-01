@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales & Data Analysis Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9fc; }
+        .card { transition: all 0.3s ease; border-left: 5px solid; }
+        .card:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+        .status-message { min-height: 20px; }
+        .tooltip { position: relative; display: inline-block; cursor: help; }
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 250px;
+            background-color: #374151;
+            color: #fff;
+            text-align: left;
+            border-radius: 6px;
+            padding: 8px 10px;
+            position: absolute;
+            z-index: 10;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -125px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.8rem;
+        }
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+        .tooltip .tooltiptext::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #374151 transparent transparent transparent;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div id="app" class="max-w-7xl mx-auto">
+        
+        <!-- Header & Upload Section -->
+        <header class="text-center mb-10">
+            <h1 class="text-3xl md:text-4xl font-extrabold text-gray-800">Sales & Demand Insight Dashboard</h1>
+            <p class="text-gray-500 mt-2">Upload new data to update Python Analysis and Power BI Report.</p>
+        </header>
+
+        <section class="bg-white p-6 rounded-xl shadow-lg mb-8">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">1. Data Upload & Processing</h2>
+            <div class="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4">
+                <input type="file" id="data-file" accept=".csv, .xlsx" class="flex-grow p-2 border border-gray-300 rounded-lg text-sm text-gray-700">
+                <button onclick="uploadFile()" id="upload-btn" class="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition duration-150 shadow-md flex-shrink-0">
+                    Process & Upload
+                </button>
+            </div>
+            <div id="status-message" class="status-message mt-4 text-sm font-medium text-gray-600"></div>
+        </section>
+
+        <!-- Key Analysis Section -->
+        <section class="mb-10">
+            <h2 class="text-2xl font-bold text-gray-800 mb-5">2. Key Analysis Functions</h2>
+            <div id="analysis-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <div id="initial-loading-message" class="col-span-full text-center py-10 text-gray-500">
+                    Waiting for backend connection...
+                </div>
+            </div>
+        </section>
+
+        <!-- Demand Prediction Tool -->
+        <section class="bg-white p-6 rounded-xl shadow-lg mb-8">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">3. Demand Prediction Tool</h2>
+            <div class="flex flex-col space-y-4">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                        <label class="text-sm font-medium text-gray-600">Units Ordered</label>
+                        <input type="number" id="units-ordered-input" value="100" class="w-full p-2 border border-gray-300 rounded-lg">
+                    </div>
+                    <div>
+                        <label class="text-sm font-medium text-gray-600">Price</label>
+                        <input type="number" id="price-input" value="510" class="w-full p-2 border border-gray-300 rounded-lg">
+                    </div>
+                    <div>
+                        <label class="text-sm font-medium text-gray-600">Promotion</label>
+                        <select id="promotion-input" class="w-full p-2 border border-gray-300 rounded-lg bg-white">
+                            <option value="1">Active (1)</option>
+                            <option value="0">Inactive (0)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-sm font-medium text-gray-600">Epidemic</label>
+                        <select id="epidemic-input" class="w-full p-2 border border-gray-300 rounded-lg bg-white">
+                            <option value="0">No (0)</option>
+                            <option value="1">Yes (1)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <button onclick="runPrediction()" id="predict-btn" class="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition duration-150 shadow-md self-start">
+                    Run Prediction
+                </button>
+            </div>
+            
+            <div class="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <p class="text-lg font-bold text-gray-700">Predicted Demand:</p>
+                <p id="predicted-demand-output" class="text-3xl font-extrabold text-blue-600 mt-1">N/A</p>
+                <p id="prediction-explanation" class="text-sm text-gray-500 mt-2"></p>
+            </div>
+        </section>
+
+        <!-- Power BI Embed Section -->
+        <section class="mb-10">
+            <h2 class="text-2xl font-bold text-gray-800 mb-5">4. Power BI Report</h2>
+            <div class="bg-white p-4 rounded-xl shadow-lg overflow-hidden">
+                <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p class="text-sm text-blue-800">
+                        <strong>Note:</strong> If the report doesn't load:
+                    </p>
+                    <ul class="text-xs text-blue-700 mt-2 ml-4 list-disc">
+                        <li>Ensure you have access to the Power BI report</li>
+                        <li>Check if the report is published and shared publicly</li>
+                        <li>The dataset credentials must be configured in Power BI Service</li>
+                        <li>Click "Refresh Power BI View" after uploading new data</li>
+                    </ul>
+                </div>
+                
+                <div class="relative" style="width: 100%; height: 600px; background: #f3f4f6; border-radius: 8px; overflow: hidden;">
+                    <iframe id="powerbi-embed" 
+                        src="https://app.powerbi.com/view?r=eyJrIjoiYmY2Y2NmZjctODE2OS00N2FlLWFhY2ItZTJlNjAxMzg1M2UxIiwidCI6ImZkMjA2NzE1LTc1MDktNGFlNS05Yjk2LTc2YmI5Nzg4NmE4NCIsImMiOjEwfQ%3D%3D"
+                        frameborder="0" 
+                        allowFullScreen="true"
+                        style="width: 100%; height: 100%; border: none;">
+                    </iframe>
+                    <div id="powerbi-loading" class="absolute inset-0 flex items-center justify-center bg-gray-100 bg-opacity-75" style="display: none;">
+                        <div class="text-center">
+                            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+                            <p class="text-gray-600">Loading Power BI Report...</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-4 flex gap-3">
+                    <button onclick="refreshPowerBIEmbed()" class="bg-yellow-500 text-white px-4 py-2 rounded-lg hover:bg-yellow-600 transition duration-150 text-sm">
+                        🔄 Refresh Power BI View
+                    </button>
+                    <a href="https://app.powerbi.com/view?r=eyJrIjoiNjYyYWM5ZDAtNTkwYy00ZjAxLWFmNzktYzkwM2E5MmRjYmQxIiwidCI6IjQzNGZmNzcyLWRmMTUtNDgxZi1hOWJmLWM5YTcxMjc1MzNiZSIsImMiOjEwfQ%3D%3D" 
+                       target="_blank" 
+                       class="bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition duration-150 text-sm">
+                        📊 Open in Power BI
+                    </a>
+                </div>
+                
+                <p class="text-xs text-gray-500 mt-3">
+                    <strong>Important:</strong> After uploading new data to OneDrive, you must manually refresh the Power BI dataset in the Power BI Service (Settings → Datasets → Refresh) for changes to appear in this report.
+                </p>
+            </div>
+        </section>
+
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE_URL = 'http://localhost:5000';
+        
+        function refreshPowerBIEmbed() {
+            const iframe = document.getElementById('powerbi-embed');
+            const currentSrc = iframe.src;
+            let newSrc = currentSrc.replace(/&v=\d+/, '');
+            newSrc = newSrc.includes('?') ? newSrc + '&v=' + new Date().getTime() : newSrc + '?v=' + new Date().getTime();
+            iframe.src = newSrc;
+        }
+
+        async function uploadFile() {
+            const fileInput = document.getElementById('data-file');
+            const statusDiv = document.getElementById('status-message');
+            const uploadBtn = document.getElementById('upload-btn');
+            
+            const formData = new FormData();
+            if (fileInput.files.length > 0) {
+                formData.append('file', fileInput.files[0]);
+            }
+
+            statusDiv.className = 'status-message mt-4 text-sm font-medium text-indigo-500';
+            statusDiv.innerHTML = '🔄 Processing file and running analysis...';
+            uploadBtn.disabled = true;
+
+            try {
+                const response = await fetch(API_BASE_URL + '/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                uploadBtn.disabled = false;
+
+                if (response.ok) {
+                    statusDiv.className = 'status-message mt-4 text-sm font-medium text-green-600';
+                    statusDiv.innerHTML = `✅ ${result.message}`;
+                    renderAnalysis(result.analysis_summary);
+                    refreshPowerBIEmbed();
+                } else {
+                    statusDiv.className = 'status-message mt-4 text-sm font-medium text-red-600';
+                    statusDiv.innerHTML = `❌ Server Error: ${result.error || 'Unknown error'}`;
+                }
+            } catch (error) {
+                uploadBtn.disabled = false;
+                statusDiv.className = 'status-message mt-4 text-sm font-medium text-red-600';
+                statusDiv.innerHTML = `❌ Network Error: Could not connect to server`;
+            }
+        }
+
+        async function runPrediction() {
+            const unitsOrdered = parseFloat(document.getElementById('units-ordered-input').value);
+            const price = parseFloat(document.getElementById('price-input').value);
+            const promotion = parseInt(document.getElementById('promotion-input').value);
+            const epidemic = parseInt(document.getElementById('epidemic-input').value);
+
+            const predictBtn = document.getElementById('predict-btn');
+            const demandOutput = document.getElementById('predicted-demand-output');
+            const explanationOutput = document.getElementById('prediction-explanation');
+
+            predictBtn.disabled = true;
+            demandOutput.textContent = '...Calculating...';
+            explanationOutput.textContent = '';
+
+            try {
+                const response = await fetch(API_BASE_URL + '/api/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        units_ordered: unitsOrdered, 
+                        price: price, 
+                        promotion: promotion, 
+                        epidemic: epidemic 
+                    })
+                });
+
+                const result = await response.json();
+                predictBtn.disabled = false;
+
+                if (response.ok) {
+                    demandOutput.textContent = result.predicted_demand;
+                    explanationOutput.textContent = result.explanation;
+                } else {
+                    demandOutput.textContent = 'ERROR';
+                    explanationOutput.textContent = result.error;
+                }
+            } catch (error) {
+                predictBtn.disabled = false;
+                demandOutput.textContent = 'NETWORK ERROR';
+                explanationOutput.textContent = 'Could not reach prediction server';
+            }
+        }
+
+        function renderAnalysis(analysis) {
+            const container = document.getElementById('analysis-container');
+            const loadingMessage = document.getElementById('initial-loading-message');
+
+            if (loadingMessage) {
+                loadingMessage.remove();
+            }
+
+            if (!analysis.metrics || analysis.metrics.total_rows === "0") {
+                container.innerHTML = '<div class="col-span-full text-center py-10 text-gray-500">No valid data found</div>';
+                return;
+            }
+
+            container.innerHTML = '';
+            
+            let missingHtml = analysis.metrics.missing_summary.map(m => `
+                <p class="text-xs text-gray-500 mt-1">
+                    ${m.column}: <strong>${m.summary}</strong>
+                </p>
+            `).join('');
+
+            let top5GapHtml = analysis.alerts.top5_demand_gap.map((g, index) => `
+                <p class="text-xs text-red-500 font-semibold mt-1">
+                    ${index + 1}. ${g}
+                </p>
+            `).join('');
+            if (analysis.alerts.top5_demand_gap.length === 0 || analysis.alerts.top5_demand_gap[0].includes('N/A')) {
+                top5GapHtml = '<p class="text-xs text-gray-500 mt-1">No gaps found</p>';
+            }
+
+            const promoInterpretation = analysis.promotion.interpretation;
+            let promoColor = 'border-gray-400';
+            if (promoInterpretation.includes('สูงมาก')) promoColor = 'border-green-500';
+            else if (promoInterpretation.includes('ปานกลาง')) promoColor = 'border-yellow-500';
+            else if (promoInterpretation.includes('ติดลบ')) promoColor = 'border-red-500';
+
+            const cards = [
+                { 
+                    title: "Data Health Check", 
+                    value: analysis.metrics.total_rows, 
+                    unit: "Rows", 
+                    color: "border-indigo-500",
+                    description: "Total rows processed",
+                    extra: missingHtml,
+                },
+                { 
+                    title: "Rolling Avg (Revenue)", 
+                    value: analysis.metrics.rolling_avg_revenue, 
+                    unit: "30D", 
+                    color: "border-blue-500",
+                    description: "30-day rolling average revenue" 
+                },
+                { 
+                    title: "Demand Gap Alert (Top 5)", 
+                    value: "TOP 5 PRODUCTS", 
+                    unit: "Gap", 
+                    color: "border-red-500",
+                    description: "Products with highest demand-supply gap",
+                    extra: top5GapHtml
+                },
+                { 
+                    title: "Price Elasticity", 
+                    value: analysis.elasticity.price_coefficient, 
+                    unit: analysis.elasticity.elasticity_group, 
+                    color: "border-yellow-500",
+                    description: analysis.elasticity.description
+                },
+                { 
+                    title: "Promotion Score", 
+                    value: analysis.promotion.score, 
+                    unit: "Effectiveness", 
+                    color: promoColor,
+                    description: analysis.promotion.interpretation
+                },
+                { 
+                    title: "Revenue Volatility", 
+                    value: analysis.volatility.volatility, 
+                    unit: "Std. Dev.", 
+                    color: "border-purple-500",
+                    description: analysis.volatility.description
+                },
+                { 
+                    title: "YoY Growth Rate", 
+                    value: analysis.yoy.yoy_growth, 
+                    unit: "Revenue Growth", 
+                    color: "border-teal-500",
+                    description: analysis.yoy.description
+                },
+                { 
+                    title: "Epidemic Revenue Impact", 
+                    value: analysis.metrics.epidemic_revenue, 
+                    unit: "Total", 
+                    color: "border-orange-500",
+                    description: "Revenue during epidemic periods"
+                }
+            ];
+
+            cards.forEach(card => {
+                const cardHtml = `
+                    <div class="card bg-white p-4 rounded-xl shadow-md ${card.color}">
+                        <div class="flex justify-between items-start">
+                            <h3 class="text-sm font-semibold text-gray-500 tooltip">
+                                ${card.title}
+                                <span class="tooltiptext">${card.description}</span>
+                            </h3>
+                            <span class="text-xs text-gray-400 font-medium">${card.unit}</span>
+                        </div>
+                        <p class="text-3xl font-extrabold text-gray-800 mt-2">${card.value}</p>
+                        ${card.extra ? '<div class="mt-2 pt-2 border-t border-gray-100">' + card.extra + '</div>' : ''}
+                    </div>
+                `;
+                container.innerHTML += cardHtml;
+            });
+        }
+
+        // Auto-load initial analysis on page load
+        window.onload = function() {
+            uploadFile();
+        };
+    </script>
+</body>
+</html>
