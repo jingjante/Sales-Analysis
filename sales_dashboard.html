@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Sales Analysis Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #fef3f9 0%, #fef9e7 25%, #e8f5fe 50%, #f3e8ff 75%, #fef3f9 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar {
+            width: 280px;
+            background: linear-gradient(180deg, #ffd4e5 0%, #d4e5ff 25%, #fffacd 50%, #e5d4ff 75%, #ffd4e5 100%);
+            border-right: 2px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            position: fixed;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 1.5rem;
+            overflow-y: auto;
+        }
+        .main-content {
+            margin-left: 280px;
+            flex-grow: 1;
+            padding: 2rem;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+        }
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #ec4899;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            border-radius: 1rem;
+            color: #374151;
+            transition: all 0.3s ease-in-out;
+            margin-bottom: 0.5rem;
+            background: rgba(255, 255, 255, 0.5);
+            backdrop-filter: blur(5px);
+        }
+        .nav-item.active {
+            background: rgba(255, 255, 255, 0.95);
+            color: #ec4899;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(236, 72, 153, 0.3);
+            transform: translateX(5px);
+        }
+        .nav-item:hover {
+            background: rgba(255, 255, 255, 0.8);
+            cursor: pointer;
+            transform: translateX(3px);
+        }
+        .section-content {
+            display: none;
+        }
+        .section-content.active {
+            display: block;
+        }
+        .powerbi-container {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%;
+            overflow: hidden;
+            border-radius: 1rem;
+        }
+        .powerbi-container iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        .gradient-pink { background: linear-gradient(135deg, #ffd4e5 0%, #ffb3d9 100%); }
+        .gradient-blue { background: linear-gradient(135deg, #d4e5ff 0%, #b3d9ff 100%); }
+        .gradient-yellow { background: linear-gradient(135deg, #fffacd 0%, #fff4a3 100%); }
+        .gradient-purple { background: linear-gradient(135deg, #e5d4ff 0%, #d9b3ff 100%); }
+        .gradient-green { background: linear-gradient(135deg, #d4ffd4 0%, #b3ffb3 100%); }
+        .gradient-orange { background: linear-gradient(135deg, #ffe5d4 0%, #ffd4b3 100%); }
+        .gradient-teal { background: linear-gradient(135deg, #d4fff5 0%, #b3ffe8 100%); }
+    </style>
+</head>
+<body class="flex">
+
+    <aside class="sidebar z-50">
+        <div class="mb-8 flex items-center justify-center p-4 bg-white bg-opacity-80 rounded-2xl shadow-lg">
+            <div class="text-4xl">📊</div>
+            <span class="text-pink-600 text-lg ml-2 font-bold">SALES ANALYSIS</span>
+        </div>
+
+        <nav class="flex-grow">
+            <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-3 px-3">Main Menu</h3>
+            <ul>
+                <li>
+                    <a href="#" class="nav-item active" data-section="data-management">
+                        <svg class="w-5 h-5 mr-3 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                        <span>Data Upload</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="nav-item" data-section="insights-analysis">
+                        <svg class="w-5 h-5 mr-3 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                        <span>Business Insights</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="nav-item" data-section="demand-prediction">
+                        <svg class="w-5 h-5 mr-3 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                        <span>Demand Predictor</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="nav-item" data-section="powerbi-visualization">
+                        <svg class="w-5 h-5 mr-3 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 2v-6m2 9H7a2 2 0 01-2-2V5a2 2 0 012-2h10a2 2 0 012 2v14a2 2 0 01-2 2z"></path></svg>
+                        <span>Power BI Dashboard</span>
+                    </a>
+                </li>
+            </ul>
+        </nav>
+        
+        <div class="mt-8 p-4 bg-white bg-opacity-70 rounded-2xl text-sm">
+            <h4 class="font-semibold mb-2 text-gray-700">✨ System Info</h4>
+            <p class="text-gray-600">Version 2.4</p>
+            <p class="text-gray-600">Updated: Nov 2024</p>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <header class="flex items-center justify-between card p-6 rounded-2xl mb-8">
+            <h1 id="page-title" class="text-3xl font-bold bg-gradient-to-r from-pink-500 to-purple-500 bg-clip-text text-transparent">Data Upload</h1>
+            <div class="flex items-center space-x-4">
+                <div class="text-sm px-4 py-2 rounded-full bg-green-100 text-green-700 font-bold shadow-md">
+                    ✓ Ready
+                </div>
+                <div class="w-10 h-10 bg-gradient-to-br from-pink-400 to-purple-400 rounded-full flex items-center justify-center text-sm font-bold text-white shadow-lg">AI</div>
+            </div>
+        </header>
+
+        <section id="data-management-content" class="section-content active space-y-6">
+            <div class="card p-8 rounded-2xl">
+                <h2 class="text-2xl font-bold text-gray-800 border-b-2 border-pink-200 pb-3 mb-6">📁 Upload Your Sales Data</h2>
+                <div class="flex flex-col md:flex-row items-end gap-4">
+                    <div class="flex-grow w-full">
+                        <label for="data-file" class="block text-sm font-semibold text-gray-700 mb-2">Select CSV File</label>
+                        <input type="file" id="data-file" accept=".csv" class="mt-1 block w-full text-sm text-gray-600
+                            file:mr-4 file:py-3 file:px-6
+                            file:rounded-full file:border-0
+                            file:text-sm file:font-semibold
+                            file:bg-gradient-to-r file:from-pink-400 file:to-purple-400 file:text-white
+                            hover:file:from-pink-500 hover:file:to-purple-500 file:shadow-lg file:cursor-pointer"/>
+                    </div>
+                    <button id="upload-btn" class="w-full md:w-auto px-8 py-3 bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-full hover:from-pink-600 hover:to-purple-600 transition duration-300 flex items-center justify-center shadow-lg font-semibold" disabled>
+                        <span id="upload-text">Process Data</span>
+                        <div id="upload-spinner" class="spinner hidden ml-2"></div>
+                    </button>
+                </div>
+                <div id="upload-status" class="text-sm mt-4 text-gray-700 font-medium"></div>
+            </div>
+
+            <div class="card p-8 rounded-2xl">
+                <h2 class="text-2xl font-bold text-gray-800 border-b-2 border-blue-200 pb-3 mb-6">🏥 Data Health Check</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="p-6 gradient-blue rounded-2xl shadow-lg">
+                        <p class="text-sm font-semibold text-blue-800 mb-2">📊 Total Rows</p>
+                        <div class="text-4xl font-bold text-blue-900" id="health-total-rows">0</div>
+                    </div>
+                    <div class="p-6 gradient-pink rounded-2xl shadow-lg">
+                        <p class="text-sm font-semibold text-pink-800 mb-2">📋 Total Columns</p>
+                        <div class="text-4xl font-bold text-pink-900" id="health-total-cols">0</div>
+                    </div>
+                    <div class="p-6 gradient-yellow rounded-2xl shadow-lg">
+                        <p class="text-sm font-semibold text-yellow-800 mb-2">⚠️ Missing Values</p>
+                        <div class="text-2xl font-bold text-yellow-900" id="health-missing">Upload data first</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="insights-analysis-content" class="section-content space-y-6">
+            <div class="card p-8 rounded-2xl">
+                <div class="flex justify-between items-center border-b-2 border-purple-200 pb-4 mb-8">
+                    <h2 class="text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">💼 Business Intelligence Analytics</h2>
+                    <button id="refresh-insights-btn" class="px-6 py-3 bg-gradient-to-r from-blue-500 to-teal-500 text-white rounded-full hover:from-blue-600 hover:to-teal-600 transition duration-300 flex items-center text-sm font-semibold shadow-lg" disabled>
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H4m0 0l1 3m15 0a8.001 8.001 0 01-15.356 2m15.356-2H21m0 0l-1-3"></path></svg>
+                        Refresh All
+                    </button>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="p-6 gradient-green rounded-2xl shadow-lg border-l-4 border-green-500 transform hover:scale-105 transition duration-300">
+                        <p class="text-sm font-bold text-green-800 mb-3 flex items-center">
+                            <span class="text-2xl mr-2">💰</span>
+                            Promotion ROI
+                        </p>
+                        <div class="text-3xl font-black text-green-900" id="metric-promo-roi">N/A</div>
+                        <div class="grid grid-cols-2 gap-3 mt-4 text-xs">
+                            <div class="bg-white bg-opacity-50 p-3 rounded-lg">
+                                <p class="text-green-700 font-semibold">Avg Rev With Promo:</p>
+                                <p class="font-bold text-green-900" id="metric-promo-with">N/A</p>
+                            </div>
+                            <div class="bg-white bg-opacity-50 p-3 rounded-lg">
+                                <p class="text-green-700 font-semibold">Avg Rev Without:</p>
+                                <p class="font-bold text-green-900" id="metric-promo-without">N/A</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="p-6 gradient-purple rounded-2xl shadow-lg border-l-4 border-purple-500 transform hover:scale-105 transition duration-300">
+                        <p class="text-sm font-bold text-purple-800 mb-3 flex items-center">
+                            <span class="text-2xl mr-2">🎯</span>
+                            Forecast Accuracy (%)
+                        </p>
+                        <div class="text-3xl font-black text-purple-900" id="metric-forecast-accuracy">N/A</div>
+                        <p class="text-sm text-purple-800 mt-3 bg-white bg-opacity-50 p-2 rounded-lg">
+                            Avg Error (MAE): <span class="font-bold" id="metric-avg-sold">N/A</span>
+                        </p>
+                    </div>
+
+                    <div class="p-6 gradient-teal rounded-2xl shadow-lg border-l-4 border-teal-500 transform hover:scale-105 transition duration-300">
+                        <p class="text-sm font-bold text-teal-800 mb-3 flex items-center">
+                            <span class="text-2xl mr-2">🌍</span>
+                            Top Region by Rev/Unit
+                        </p>
+                        <div class="text-3xl font-black text-teal-900" id="metric-top-region">N/A</div>
+                        <p class="text-sm text-teal-800 mt-3 bg-white bg-opacity-50 p-2 rounded-lg">
+                            Rev/Unit: <span class="font-bold text-lg" id="metric-revenue-per-unit">N/A</span>
+                        </p>
+                    </div>
+                    
+                    <div class="p-6 gradient-orange rounded-2xl shadow-lg border-l-4 border-orange-500 transform hover:scale-105 transition duration-300">
+                        <p class="text-sm font-bold text-orange-800 mb-3 flex items-center">
+                            <span class="text-2xl mr-2">🦠</span>
+                            Epidemic Impact (vs Normal)
+                        </p>
+                        <div class="grid grid-cols-2 gap-3 mt-4">
+                            <div class="bg-white bg-opacity-50 p-3 rounded-lg">
+                                <p class="text-xs text-orange-700 font-semibold">Units Diff:</p>
+                                <p class="text-xl font-black text-orange-900" id="metric-epidemic-units">N/A</p>
+                            </div>
+                            <div class="bg-white bg-opacity-50 p-3 rounded-lg">
+                                <p class="text-xs text-orange-700 font-semibold">Revenue Diff:</p>
+                                <p class="text-xl font-black text-orange-900" id="metric-epidemic-revenue">N/A</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="p-6 gradient-blue rounded-2xl shadow-lg border-l-4 border-blue-500 transform hover:scale-105 transition duration-300">
+                        <p class="text-sm font-bold text-blue-800 mb-3 flex items-center">
+                            <span class="text-2xl mr-2">💵</span>
+                            Price Sensitivity
+                        </p>
+                        <p class="text-xs text-blue-800 mt-2">Correlation (Price vs Sold):</p>
+                        <div class="text-3xl font-black text-blue-900" id="metric-price-correlation">N/A</div>
+                        <p class="text-xs text-blue-800 mt-3 bg-white bg-opacity-50 p-2 rounded-lg">
+                            Optimal Range: <span class="font-bold text-sm" id="metric-optimal-price-range">N/A</span>
+                        </p>
+                    </div>
+                    
+                    <div class="p-6 gradient-pink rounded-2xl shadow-lg border-l-4 border-pink-500 transform hover:scale-105 transition duration-300">
+                        <p class="text-sm font-bold text-pink-800 mb-3 flex items-center">
+                            <span class="text-2xl mr-2">📊</span>
+                            Category Trend (3M vs 3M)
+                        </p>
+                        <div class="mt-3 space-y-3">
+                            <div class="bg-white bg-opacity-50 p-3 rounded-lg">
+                                <p class="text-xs text-pink-800 font-semibold mb-1">📈 Trending Up (Units):</p>
+                                <p class="text-sm font-bold text-pink-900" id="metric-trending-up-text">N/A</p>
+                            </div>
+                            <div class="bg-white bg-opacity-50 p-3 rounded-lg">
+                                <p class="text-xs text-pink-800 font-semibold mb-1">📉 Trending Down (Units):</p>
+                                <p class="text-sm font-bold text-pink-900" id="metric-trending-down-text">N/A</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="demand-prediction-content" class="section-content space-y-6">
+            <div class="card p-8 rounded-2xl">
+                <h2 class="text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent border-b-2 border-blue-200 pb-4 mb-6">🔮 AI Demand Prediction Tool</h2>
+                </p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                    <div>
+                        <label for="input-units-sold" class="block text-sm font-bold text-gray-700 mb-2">Units Sold (X1)</label>
+                        <input type="number" id="input-units-sold" value="200" min="0" class="mt-1 block w-full rounded-xl border-2 border-pink-200 focus:border-pink-500 focus:ring-pink-500 p-3 shadow-sm"/>
+                    </div>
+                    <div>
+                        <label for="input-units-ordered" class="block text-sm font-bold text-gray-700 mb-2">Units Ordered (X2)</label>
+                        <input type="number" id="input-units-ordered" value="250" min="0" class="mt-1 block w-full rounded-xl border-2 border-purple-200 focus:border-purple-500 focus:ring-purple-500 p-3 shadow-sm"/>
+                    </div>
+                    <div>
+                        <label for="input-promotion" class="block text-sm font-bold text-gray-700 mb-2">Promotion (X3)</label>
+                        <select id="input-promotion" class="mt-1 block w-full rounded-xl border-2 border-blue-200 focus:border-blue-500 focus:ring-blue-500 p-3 shadow-sm">
+                            <option value="0">0 (No Promotion)</option>
+                            <option value="1">1 (Active Promotion)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="input-epidemic" class="block text-sm font-bold text-gray-700 mb-2">Epidemic Status (X4)</label>
+                        <select id="input-epidemic" class="mt-1 block w-full rounded-xl border-2 border-orange-200 focus:border-orange-500 focus:ring-orange-500 p-3 shadow-sm">
+                            <option value="0">0 (Normal)</option>
+                            <option value="1">1 (Epidemic)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between gradient-blue p-8 rounded-2xl shadow-xl border-2 border-blue-300">
+                    <button id="predict-btn" class="px-10 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-bold rounded-full hover:from-blue-700 hover:to-cyan-700 transition duration-300 flex items-center justify-center shadow-lg transform hover:scale-105">
+                        <span>🎯 Predict Demand</span>
+                    </button>
+                    
+                    <div class="text-right">
+                        <p class="text-sm font-bold text-blue-800 mb-2">Predicted Demand</p>
+                        <div class="text-5xl font-black text-blue-900" id="prediction-output">--</div>
+                        <p class="text-xs text-blue-700 mt-2 font-medium" id="prediction-explanation">Enter values and click predict</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="powerbi-visualization-content" class="section-content space-y-6">
+            <div class="card p-8 rounded-2xl">
+                <h2 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-pink-600 bg-clip-text text-transparent border-b-2 border-orange-200 pb-4 mb-6">📊 Power BI Interactive Dashboard</h2>
+                <div class="text-center mb-6">
+                    <p class="text-gray-600 mb-4 text-lg">Explore detailed visualizations and trend analysis</p>
+                    <button onclick="document.getElementById('powerbi-frame').src=document.getElementById('powerbi-frame').src" class="px-8 py-4 bg-gradient-to-r from-orange-500 to-pink-500 text-white font-bold rounded-full hover:from-orange-600 hover:to-pink-600 transition duration-300 shadow-lg transform hover:scale-105">
+                        🔄 Refresh Dashboard
+                    </button>
+                </div>
+                <div class="mt-6 border-4 border-orange-200 rounded-2xl overflow-hidden powerbi-container shadow-xl">
+                    <iframe id="powerbi-frame" src="https://app.powerbi.com/view?r=eyJrIjoiYmY2Y2NmZjctODE2OS00N2FlLWFhY2ItZTJlNjAxMzg1M2UxIiwidCI6ImZkMjA2NzE1LTc1MDktNGFlNS05Yjk2LTc2YmI5Nzg4NmE4NCIsImMiOjEwfQ%3D%3D"
+                            title="Power BI Dashboard" 
+                            frameborder="0" 
+                            allowFullScreen="true">
+                    </iframe>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        // Global data storage for analysis
+        let globalData = null;
+
+        // Prediction formula coefficients
+        const COEFFICIENTS = {
+            Intercept: 33.7221,
+            'Units Sold': 0.7439,
+            'Units Ordered': 0.0516,
+            Promotion: 8.6003,
+            Epidemic: -14.5887
+        };
+
+        // Helper function to update HTML metrics
+        function updateMetric(id, value, fallback = 'N/A') {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = (value !== null && value !== undefined) ? value.toString() : fallback;
+            }
+        }
+        
+        // Helper function for correlation
+        function calculateCorrelation(x, y) {
+            const n = x.length;
+            if (n === 0 || n !== y.length) return 0;
+            
+            const meanX = x.reduce((a, b) => a + b, 0) / n;
+            const meanY = y.reduce((a, b) => a + b, 0) / n;
+            
+            let numerator = 0;
+            let denominatorX = 0;
+            let denominatorY = 0;
+
+            for (let i = 0; i < n; i++) {
+                // Ensure values are treated as numbers
+                const devX = parseFloat(x[i]) - meanX;
+                const devY = parseFloat(y[i]) - meanY;
+                numerator += devX * devY;
+                denominatorX += devX * devX;
+                denominatorY += devY * devY;
+            }
+
+            const denominator = Math.sqrt(denominatorX * denominatorY);
+            // Handle near-zero denominators to prevent NaN/Infinity
+            return denominator === 0 ? 0 : numerator / denominator;
+        }
+
+        // --- Data Health Check (F1) ---
+        function runDataHealthCheck(data) {
+            const totalRows = data.length;
+            if (totalRows === 0) return;
+
+            const totalColumns = Object.keys(data[0]).length;
+            let missingCount = 0;
+
+            data.forEach(row => {
+                for (const key in row) {
+                    if (row[key] === null || row[key] === undefined || row[key] === '') {
+                        missingCount++;
+                    }
+                }
+            });
+
+            updateMetric('health-total-rows', totalRows.toLocaleString());
+            updateMetric('health-total-cols', totalColumns.toLocaleString());
+            updateMetric('health-missing', missingCount > 0 ? `${missingCount} cells (${((missingCount / (totalRows * totalColumns)) * 100).toFixed(2)}%)` : 'None');
+        }
+
+        // --- Business Insights Analytics (F4-F9) ---
+        function runAnalysis(data) {
+            if (!data || data.length === 0) return;
+
+            // F4: Promotion ROI
+            const withPromo = data.filter(d => parseFloat(d.Promotion) === 1);
+            const withoutPromo = data.filter(d => parseFloat(d.Promotion) === 0);
+            
+            const sumRevWith = withPromo.reduce((sum, d) => sum + (parseFloat(d.Revenue) || 0), 0);
+            const sumRevWithout = withoutPromo.reduce((sum, d) => sum + (parseFloat(d.Revenue) || 0), 0);
+
+            const avgRevWith = sumRevWith / (withPromo.length || 1);
+            const avgRevWithout = sumRevWithout / (withoutPromo.length || 1);
+
+            let promoROI = 0;
+            if (avgRevWithout > 0) {
+                promoROI = ((avgRevWith - avgRevWithout) / avgRevWithout) * 100;
+            } else if (avgRevWith > 0) {
+                promoROI = 99999.99; 
+            }
+            
+            updateMetric('metric-promo-roi', `${promoROI.toFixed(2)}%`);
+            updateMetric('metric-promo-with', `฿${avgRevWith.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`);
+            updateMetric('metric-promo-without', `฿${avgRevWithout.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`);
+
+
+            // F5: Forecast Accuracy
+            let sumError = 0;
+            let sumAccuracy = 0;
+            let validAccuracyCount = 0;
+            
+            data.forEach(d => {
+                const demand = parseFloat(d.Demand) || 0;
+                const unitsSold = parseFloat(d['Units Sold']) || 0;
+                
+                const error = Math.abs(demand - unitsSold);
+                sumError += error;
+
+                if (demand > 0) {
+                    const accuracy = 1 - (error / demand);
+                    sumAccuracy += accuracy;
+                    validAccuracyCount++;
+                }
+            });
+
+            const mae = sumError / data.length; 
+
+            let avg_accuracy = 'N/A';
+            if (validAccuracyCount > 0) {
+                avg_accuracy = (sumAccuracy / validAccuracyCount) * 100;
+                updateMetric('metric-forecast-accuracy', `${avg_accuracy.toFixed(2)}%`);
+            } else {
+                 updateMetric('metric-forecast-accuracy', 'N/A');
+            }
+            
+            updateMetric('metric-avg-sold', `${mae.toFixed(0)} units (MAE)`);
+
+
+            // F6: Regional Performance
+            const regionMap = data.reduce((map, d) => {
+                const region = d.Region;
+                const revenue = parseFloat(d.Revenue) || 0;
+                const units = parseFloat(d['Units Sold']) || 0;
+                
+                map[region] = map[region] || { revenue: 0, units: 0 };
+                map[region].revenue += revenue;
+                map[region].units += units;
+                return map;
+            }, {});
+
+            let topRegion = 'N/A';
+            let maxRevPerUnit = -Infinity;
+            let topRevPerUnitValue = 0;
+
+            for (const region in regionMap) {
+                const revPerUnit = regionMap[region].revenue / (regionMap[region].units || 1);
+                if (revPerUnit > maxRevPerUnit) {
+                    maxRevPerUnit = revPerUnit;
+                    topRegion = region;
+                    topRevPerUnitValue = revPerUnit;
+                }
+            }
+            updateMetric('metric-top-region', topRegion);
+            updateMetric('metric-revenue-per-unit', `฿${topRevPerUnitValue.toFixed(2)}`);
+
+
+            // F7: Epidemic Impact
+            const unitsEpidemic = data.filter(d => parseFloat(d.Epidemic) === 1).map(d => parseFloat(d['Units Sold']) || 0);
+            const unitsNormal = data.filter(d => parseFloat(d.Epidemic) === 0).map(d => parseFloat(d['Units Sold']) || 0);
+            const revEpidemic = data.filter(d => parseFloat(d.Epidemic) === 1).map(d => parseFloat(d.Revenue) || 0);
+            const revNormal = data.filter(d => parseFloat(d.Epidemic) === 0).map(d => parseFloat(d.Revenue) || 0);
+
+            const avgUnitsEpidemic = unitsEpidemic.reduce((sum, u) => sum + u, 0) / (unitsEpidemic.length || 1);
+            const avgUnitsNormal = unitsNormal.reduce((sum, u) => sum + u, 0) / (unitsNormal.length || 1);
+            const avgRevEpidemic = revEpidemic.reduce((sum, r) => sum + r, 0) / (revEpidemic.length || 1);
+            const avgRevNormal = revNormal.reduce((sum, r) => sum + r, 0) / (revNormal.length || 1);
+
+            let unitsImpactPct = 'N/A';
+            if (unitsNormal.length > 0 && avgUnitsNormal > 0) { 
+                unitsImpactPct = (((avgUnitsEpidemic - avgUnitsNormal) / avgUnitsNormal) * 100).toFixed(2);
+                unitsImpactPct = (unitsImpactPct >= 0 ? '+' : '') + unitsImpactPct + '%';
+            }
+
+            let revImpactPct = 'N/A';
+            if (revNormal.length > 0 && avgRevNormal > 0) { 
+                revImpactPct = (((avgRevEpidemic - avgRevNormal) / avgRevNormal) * 100).toFixed(2);
+                revImpactPct = (revImpactPct >= 0 ? '+' : '') + revImpactPct + '%';
+            }
+
+            updateMetric('metric-epidemic-units', unitsImpactPct);
+            updateMetric('metric-epidemic-revenue', revImpactPct);
+            
+            // F8: Pricing Effectiveness - UPDATED LOGIC
+            const prices = data.map(d => parseFloat(d.Price) || 0);
+            const unitsSoldF8 = data.map(d => parseFloat(d['Units Sold']) || 0);
+
+            // 1. Calculate Correlation
+            const correlation = calculateCorrelation(prices, unitsSoldF8);
+
+            // 2. Calculate Optimal Price Range (Equivalent to pd.cut(bins=5))
+            let optimalRange = "Cannot determine";
+            const validPrices = prices.filter(p => p > 0);
+            
+            if (validPrices.length >= 5) {
+                const minPrice = Math.min(...validPrices);
+                const maxPrice = Math.max(...validPrices);
+                const rangeDiff = maxPrice - minPrice;
+                const binCount = 5;
+                const binSize = rangeDiff / binCount;
+                
+                if (binSize > 0) {
+                    let priceBins = [];
+                    for (let i = 0; i < binCount; i++) {
+                        priceBins.push({
+                            min: minPrice + i * binSize,
+                            max: (i === binCount - 1) ? maxPrice : minPrice + (i + 1) * binSize,
+                            unitsSum: 0,
+                            count: 0
+                        });
+                    }
+
+                    data.forEach(d => {
+                        const price = parseFloat(d.Price) || 0;
+                        const units = parseFloat(d['Units Sold']) || 0;
+                        if (price > 0 && units > 0) {
+                            for (const bin of priceBins) {
+                                // Inclusive min, Exclusive max, except for the last bin (Inclusive max)
+                                if (price >= bin.min && (price < bin.max || (price === bin.max && bin.max === maxPrice))) {
+                                    bin.unitsSum += units;
+                                    bin.count++;
+                                    break;
+                                }
+                            }
+                        }
+                    });
+
+                    // Calculate mean and find optimal bin
+                    let maxAvgUnits = -Infinity;
+                    let optimalBin = null;
+
+                    for (const bin of priceBins) {
+                        const avgUnits = bin.count > 0 ? bin.unitsSum / bin.count : -Infinity;
+                        if (avgUnits > maxAvgUnits) {
+                            maxAvgUnits = avgUnits;
+                            optimalBin = bin;
+                        }
+                    }
+                    
+                    if (optimalBin) {
+                        optimalRange = `฿${optimalBin.min.toFixed(2)} - ฿${optimalBin.max.toFixed(2)}`;
+                    }
+                }
+            }
+
+            updateMetric('metric-price-correlation', correlation.toFixed(3));
+            updateMetric('metric-optimal-price-range', optimalRange);
+
+            
+            // F9: Category Performance - UPDATED LOGIC
+            let trendingUp = "No significant growth";
+            let trendingDown = "No significant decline";
+
+            const validData = data.filter(d => d.Date && d.Category && parseFloat(d['Units Sold']) > 0);
+
+            if (validData.length > 0) {
+                // Convert Date strings to Date objects and extract Month Period (YYYY-MM)
+                const dataWithMonth = validData.map(d => {
+                    // Try to parse as date object
+                    const date = new Date(d.Date);
+                    if (isNaN(date.getTime())) return null; 
+                    
+                    const unitsSold = parseFloat(d['Units Sold']) || 0;
+                    
+                    // Simple YYYY-MM format for comparison (equivalent to Period('M'))
+                    const monthPeriod = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                    return {
+                        Category: d.Category,
+                        Month: monthPeriod,
+                        UnitsSold: unitsSold,
+                        Timestamp: date.getTime()
+                    };
+                }).filter(d => d !== null);
+
+                if (dataWithMonth.length > 0) {
+                    // Find latest month
+                    const allMonths = Array.from(new Set(dataWithMonth.map(d => d.Month))).sort();
+                    
+                    if (allMonths.length >= 6) {
+                        // Get last 6 distinct months
+                        const last6Months = allMonths.slice(-6);
+                        const latest3Months = last6Months.slice(-3); // Last 3 months (current period)
+                        const prev3Months = last6Months.slice(0, 3); // Previous 3 months (base period)
+
+                        let currentSales = {};
+                        let previousSales = {};
+
+                        dataWithMonth.forEach(d => {
+                            if (latest3Months.includes(d.Month)) {
+                                currentSales[d.Category] = (currentSales[d.Category] || 0) + d.UnitsSold;
+                            } else if (prev3Months.includes(d.Month)) {
+                                previousSales[d.Category] = (previousSales[d.Category] || 0) + d.UnitsSold;
+                            }
+                        });
+
+                        // Calculate Growth
+                        let growth = [];
+                        const commonCats = new Set(Object.keys(currentSales).filter(cat => previousSales[cat] !== undefined));
+
+                        commonCats.forEach(cat => {
+                            const prev = previousSales[cat];
+                            const curr = currentSales[cat];
+                            if (prev > 0) {
+                                const growthPct = ((curr - prev) / prev) * 100;
+                                growth.push({ category: cat, growth: growthPct });
+                            }
+                        });
+
+                        // Sort and determine trends
+                        if (growth.length > 0) {
+                            growth.sort((a, b) => b.growth - a.growth); // Sort descending
+
+                            const top2 = growth.slice(0, 2);
+                            const bottom2 = growth.slice(-2);
+
+                            const upText = top2
+                                .filter(g => g.growth > 0)
+                                .map(g => `${g.category} (+${g.growth.toFixed(1)}%)`);
+                            
+                            const downText = bottom2
+                                .filter(g => g.growth < 0)
+                                .map(g => `${g.category} (${g.growth.toFixed(1)}%)`);
+                            
+                            if (upText.length > 0) trendingUp = upText.join(', ');
+                            if (downText.length > 0) trendingDown = downText.join(', ');
+                        }
+                    } else if (allMonths.length > 0) {
+                        trendingUp = `Insufficient data (need 6 months, only have ${allMonths.length})`;
+                        trendingDown = `Insufficient data (need 6 months, only have ${allMonths.length})`;
+                    }
+                }
+            }
+
+            updateMetric('metric-trending-up-text', trendingUp);
+            updateMetric('metric-trending-down-text', trendingDown);
+            
+            // Re-enable refresh button
+            document.getElementById('refresh-insights-btn').disabled = false;
+        }
+        
+        // --- Demand Prediction Logic ---
+        function runPrediction() {
+            const unitsSold = parseFloat(document.getElementById('input-units-sold').value || 0);
+            const unitsOrdered = parseFloat(document.getElementById('input-units-ordered').value || 0);
+            const promotion = parseInt(document.getElementById('input-promotion').value || 0);
+            const epidemic = parseInt(document.getElementById('input-epidemic').value || 0);
+            
+            if (isNaN(unitsSold) || isNaN(unitsOrdered) || isNaN(promotion) || isNaN(epidemic)) {
+                document.getElementById('prediction-output').textContent = 'Error';
+                document.getElementById('prediction-explanation').textContent = 'Invalid input values';
+                return;
+            }
+
+            // Demand = 33.7221 + 0.7439(Units Sold) + 0.0516(Units Ordered) + 8.6003(Promotion) − 14.5887(Epidemic)
+            const prediction = (
+                COEFFICIENTS.Intercept +
+                (COEFFICIENTS['Units Sold'] * unitsSold) +
+                (COEFFICIENTS['Units Ordered'] * unitsOrdered) +
+                (COEFFICIENTS.Promotion * promotion) +
+                (COEFFICIENTS.Epidemic * epidemic)
+            );
+            
+            const predictedDemand = prediction.toFixed(2);
+            
+            document.getElementById('prediction-output').className = 'text-5xl font-black text-blue-900';
+            document.getElementById('prediction-output').textContent = predictedDemand;
+            
+            let explanation = `Predicted based on: Units Sold (${unitsSold.toFixed(0)}), Ordered (${unitsOrdered.toFixed(0)})`;
+            if (promotion === 1) explanation += ", Promotion (Active)";
+            if (epidemic === 1) explanation += ", Epidemic (Active)";
+
+            document.getElementById('prediction-explanation').textContent = explanation;
+        }
+
+        // --- Main Initialization and Event Listeners ---
+        document.addEventListener('DOMContentLoaded', function() {
+            const navItems = document.querySelectorAll('.nav-item');
+            const sections = document.querySelectorAll('.section-content');
+            const pageTitle = document.getElementById('page-title');
+            const uploadBtn = document.getElementById('upload-btn');
+            const dataFile = document.getElementById('data-file');
+            const uploadStatus = document.getElementById('upload-status');
+            const uploadText = document.getElementById('upload-text');
+            const uploadSpinner = document.getElementById('upload-spinner');
+            const refreshInsightsBtn = document.getElementById('refresh-insights-btn');
+            const predictBtn = document.getElementById('predict-btn');
+
+            function showSection(sectionId) {
+                sections.forEach(sec => sec.classList.remove('active'));
+                navItems.forEach(item => item.classList.remove('active'));
+                
+                const targetSection = document.getElementById(sectionId + '-content');
+                const targetNav = document.querySelector('[data-section="' + sectionId + '"]');
+                
+                if (targetSection) targetSection.classList.add('active');
+                if (targetNav) targetNav.classList.add('active');
+                
+                let title = "Dashboard";
+                if (sectionId === "data-management") title = "Data Upload";
+                else if (sectionId === "insights-analysis") {
+                    title = "Business Insights";
+                    // Only run analysis if data is available and we switch to this tab
+                    if (globalData) runAnalysis(globalData); 
+                }
+                else if (sectionId === "demand-prediction") title = "Demand Predictor";
+                else if (sectionId === "powerbi-visualization") title = "Power BI Dashboard";
+                
+                pageTitle.textContent = title;
+            }
+
+            navItems.forEach(item => {
+                item.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    showSection(item.getAttribute('data-section'));
+                });
+            });
+
+            dataFile.addEventListener('change', function() {
+                uploadBtn.disabled = !dataFile.files.length;
+                uploadStatus.textContent = '';
+            });
+
+            uploadBtn.addEventListener('click', function() {
+                const file = dataFile.files[0];
+                if (!file) {
+                    uploadStatus.className = 'text-red-600 font-bold text-sm mt-4';
+                    uploadStatus.textContent = 'Please select a CSV file first';
+                    return;
+                }
+
+                uploadText.textContent = 'Processing...';
+                uploadSpinner.classList.remove('hidden');
+                uploadBtn.disabled = true;
+                refreshInsightsBtn.disabled = true; // Disable refresh while processing
+
+                Papa.parse(file, {
+                    header: true,
+                    // Columns that should be automatically parsed as numbers
+                    dynamicTyping: ['Inventory Level', 'Units Sold', 'Units Ordered', 'Price', 'Discount', 'Promotion', 'Competitor Pricing', 'Epidemic', 'Demand', 'Net Price', 'Revenue', 'Demand gap'],
+                    skipEmptyLines: true,
+                    complete: function(results) {
+                        // Filter out empty rows
+                        const cleanData = results.data.filter(row => 
+                            row['Units Sold'] !== null && row['Units Sold'] !== undefined && row['Units Sold'] !== ''
+                        );
+                        
+                        // Store globally
+                        globalData = cleanData;
+
+                        if (cleanData.length > 0) {
+                            runDataHealthCheck(globalData);
+                            // Run analysis only if the insights tab is active, otherwise it will run when the tab is clicked
+                            if (document.getElementById('insights-analysis-content').classList.contains('active')) {
+                                runAnalysis(globalData); 
+                            } else {
+                                refreshInsightsBtn.disabled = false;
+                            }
+                            
+                            uploadStatus.className = 'text-green-600 font-bold text-sm mt-4';
+                            uploadStatus.textContent = `✅ Upload successful! Processed ${globalData.length} rows.`;
+                        } else {
+                            uploadStatus.className = 'text-red-600 font-bold text-sm mt-4';
+                            uploadStatus.textContent = '❌ Upload failed. No valid data rows found.';
+                            globalData = null;
+                            updateMetric('health-total-rows', 0);
+                            updateMetric('health-total-cols', 0);
+                            updateMetric('health-missing', 'Error');
+                        }
+
+                        uploadText.textContent = 'Process Data';
+                        uploadSpinner.classList.add('hidden');
+                        uploadBtn.disabled = false;
+                    },
+                    error: function(error) {
+                        uploadStatus.className = 'text-red-600 font-bold text-sm mt-4';
+                        uploadStatus.textContent = `❌ CSV Parsing Error: ${error.message}`;
+                        uploadText.textContent = 'Process Data';
+                        uploadSpinner.classList.add('hidden');
+                        uploadBtn.disabled = false;
+                        globalData = null;
+                        refreshInsightsBtn.disabled = true;
+                    }
+                });
+            });
+
+            refreshInsightsBtn.addEventListener('click', function() {
+                if (globalData) {
+                    refreshInsightsBtn.disabled = true; // Temporarily disable button
+                    runAnalysis(globalData);
+                }
+            });
+
+            predictBtn.addEventListener('click', function() {
+                runPrediction();
+            });
+            
+            // Set initial state
+            showSection('data-management');
+            runPrediction(); // Run prediction with default values
+        });
+    </script>
+</body>
+</html>
