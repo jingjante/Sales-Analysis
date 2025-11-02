@@ -4,276 +4,501 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import numpy as np
 import os
-import logging 
+import logging
 import json
+from datetime import datetime, timedelta
 
 # --- Configuration ---
 app = Flask(__name__)
-CORS(app) # Enable CORS for all domains
+CORS(app)
 DATA_DIR = 'data'
 LIVE_DATA_PATH = os.path.join(DATA_DIR, 'live_data.csv')
 
-# Configure Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- Define Coefficients from Excel Regression ---
-# Demand = 99.68 + (0.1279 * Units Ordered) - (0.0769 * Price) + (18.489 * Promotion) - (38.169 * Epidemic)
+# Predicted Demand = 33.7221 + 0.7439(Units Sold) + 0.0516(Units Ordered) + 8.6003(Promotion) − 14.5887(Epidemic)
 COEFFICIENTS = {
-    'Intercept': 99.68,
-    'Units Ordered': 0.1279,
-    'Price': -0.0769, 
-    'Promotion': 18.489,
-    'Epidemic': -38.169
+    'Intercept': 33.7221,
+    'Units Sold': 0.7439,
+    'Units Ordered': 0.0516,
+    'Promotion': 8.6003,
+    'Epidemic': -14.5887
 }
-# ----------------------------------------------------
 
 if not os.path.exists(DATA_DIR):
- os.makedirs(DATA_DIR)
+    os.makedirs(DATA_DIR)
 
-# --- JSON Serialization Helper ---
 class NpEncoder(json.JSONEncoder):
- def default(self, obj):
-    if isinstance(obj, np.integer):
-        return int(obj)
-    if isinstance(obj, np.floating):
-        return float(obj)
-    if isinstance(obj, np.ndarray):
-        return obj.tolist()
-    return super(NpEncoder, self).default(obj)
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if pd.isna(obj):
+            return None
+        return super(NpEncoder, self).default(obj)
+
+def normalize_column_names(df):
+    """
+    Normalizes column names to handle variations like:
+    - 'Units Sold' vs 'UnitsSold' vs 'units_sold' vs 'Sum of Units Sold'
+    - 'Product_ID' vs 'ProductID' vs 'Product ID'
+    """
+    column_mapping = {}
+    
+    # Define mapping patterns (target_name: list of possible variations)
+    patterns = {
+        'Units Sold': ['units sold', 'unitssold', 'units_sold', 'sum of units sold', 'sold units', 'qty sold', 'quantity sold'],
+        'Units Ordered': ['units ordered', 'unitsordered', 'units_ordered', 'ordered units', 'qty ordered', 'quantity ordered', 'order quantity'],
+        'Product_ID': ['product_id', 'productid', 'product id', 'product', 'prod_id', 'sku'],
+        'Region': ['region', 'area', 'territory', 'location'],
+        'Category': ['category', 'product category', 'cat', 'type'],
+        'Price': ['price', 'unit price', 'unitprice', 'selling price'],
+        'Revenue': ['revenue', 'sales', 'total revenue', 'total sales', 'sales amount'],
+        'Promotion': ['promotion', 'promo', 'is_promotion', 'promotional'],
+        'Epidemic': ['epidemic', 'crisis', 'emergency', 'outbreak'],
+        'Demand': ['demand', 'forecasted demand', 'predicted demand', 'forecast'],
+        'Date': ['date', 'transaction date', 'sale date', 'order date']
+    }
+    
+    actual_columns = {col.lower().strip(): col for col in df.columns}
+    
+    for target_name, variations in patterns.items():
+        for variation in variations:
+            if variation in actual_columns:
+                original_col = actual_columns[variation]
+                if original_col != target_name:  
+                    column_mapping[original_col] = target_name
+                break
+    
+    if column_mapping:
+        logger.info(f"Column mapping applied: {column_mapping}")
+        df = df.rename(columns=column_mapping)
+    
+    logger.info(f"Final columns after normalization: {df.columns.tolist()}")
+    return df
 
 # --- Initialization & Dummy Data Creation ---
 def create_initial_data():
-    """Checks for or creates dummy data if the live data file is missing or empty."""
+    """Creates dummy data if the live data file is missing or empty."""
     if not os.path.exists(LIVE_DATA_PATH) or os.path.getsize(LIVE_DATA_PATH) == 0:
         logger.info(f"Creating initial dummy data at: {LIVE_DATA_PATH}")
-        dates = pd.to_datetime(pd.date_range(end='2025-01-01', periods=76, freq='D'))
-        products = [f'P{i:03d}' for i in range(1, 11)]
+        np.random.seed(42)
+        dates = pd.date_range(start='2022-01-01', end='2024-12-31', freq='D')
+        n_records = len(dates)
+        
+        products = [f'P{i:04d}' for i in range(1, 21)]
+        regions = ['North', 'South', 'East', 'West']
+        categories = ['Groceries', 'Clothing', 'Furniture', 'Toys', 'Electronics']
         
         data = {
-            'Date': np.tile(dates, 10)[:760],
-            'Product_ID': np.repeat(products, int(760/10))[:760],
-            'Price': np.random.randint(50, 200, 760),
-            'Units Ordered': np.random.randint(100, 600, 760),
-            'Revenue': np.random.randint(50000, 150000, 760),
-            'Promotion': np.random.choice([0, 1], 760, p=[0.7, 0.3]),
-            'Epidemic': np.random.choice([0, 1], 760, p=[0.9, 0.1])
+            'Date': np.random.choice(dates, n_records),
+            'Product_ID': np.random.choice(products, n_records),
+            'Region': np.random.choice(regions, n_records),
+            'Category': np.random.choice(categories, n_records),
+            'Units Sold': np.random.randint(50, 500, n_records),
+            'Units Ordered': np.random.randint(100, 600, n_records),
+            'Price': np.random.uniform(50, 200, n_records).round(2),
+            'Revenue': np.random.randint(5000, 50000, n_records),
+            'Promotion': np.random.choice([0, 1], n_records, p=[0.7, 0.3]),
+            'Epidemic': np.random.choice([0, 1], n_records, p=[0.95, 0.05])
         }
+        
         df = pd.DataFrame(data)
-        # สร้าง Demand ด้วยสูตรเดิมเพื่อให้การวิเคราะห์อื่นๆ ยังคงทำงาน
-        df['Demand'] = df['Units Ordered'] + (df['Revenue'] / 1000) * 0.1 + np.random.randint(20, 50, 760)
+        df['Demand'] = df['Units Sold'] + np.random.randint(10, 50, n_records)
         df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
-        df.loc[df.sample(frac=0.01).index, 'Price'] = np.nan
         df.to_csv(LIVE_DATA_PATH, index=False)
         return True
     return False
 
-# --- Analysis Functions (Modified for Manual Coefficients and Robustness) ---
-
-def calculate_missing_values(df, required_cols):
-    """Calculates missing values summary for required columns."""
-    if df.empty:
-        return [{"column": col, "summary": "0 (0.00%)"} for col in required_cols]
-        
-    total_rows = len(df)
-    missing_summary = []
-    for col in required_cols:
-        count = 0
-        percent = 0.00
-        if col in df.columns:
-            count = df[col].isnull().sum()
-            percent = (count / total_rows) * 100 if total_rows > 0 else 0
-        summary_str = f"{count} ({percent:.2f}%)"
-        missing_summary.append({"column": col, "summary": summary_str})
-    return missing_summary
-
-def get_demand_gap_alert(df):
-    """Calculates the top 5 products with the largest positive demand gap."""
-    if df.empty or not all(col in df.columns for col in ['Product_ID', 'Demand', 'Units Ordered']):
-        return ["N/A (Missing required columns or empty data)"]
-
+def safe_numeric_column(df, col_name):
+    """Converts column to numeric, handling errors gracefully."""
+    if col_name not in df.columns:
+        return None
     try:
-        df_copy = df.copy()
-        df_copy['Demand Gap'] = df_copy['Demand'] - df_copy['Units Ordered']
-        gap_summary = df_copy.groupby('Product_ID')['Demand Gap'].sum().reset_index()
-        gap_summary = gap_summary.sort_values(by='Demand Gap', ascending=False).head(5)
-        
-        top5_gaps = []
-        for index, row in gap_summary.iterrows():
-            gap_value = row['Demand Gap'] if pd.notna(row['Demand Gap']) else 0
-            if gap_value > 0:
-                top5_gaps.append(f"{row['Product_ID']}: {gap_value:,.2f}")
-        
-        if not top5_gaps:
-            return ["No significant gaps found"]
-        return top5_gaps
-    except Exception as e:
-        logger.error(f"Error calculating demand gap: {e}")
-        return ["Error during calculation"]
+        return pd.to_numeric(df[col_name], errors='coerce')
+    except:
+        return None
 
+# --- ANALYSIS FUNCTIONS ---
 
-def calculate_elasticity_groups(df):
-    """Uses the manual Price Coefficient to determine elasticity group."""
-    price_coef = COEFFICIENTS.get('Price')
-    if price_coef is None:
-        return {"price_coefficient": "N/A", "elasticity_group": "Coefficient Error", "description": "ไม่พบค่าสัมประสิทธิ์ราคา"}
-    
+def calculate_data_health(df):
+    """Data Health Check: Basic statistics about data quality."""
     try:
-        # ใช้ค่าสัมบูรณ์ของสัมประสิทธิ์เพื่อดูความยืดหยุ่น
-        if abs(price_coef) < 1: 
-            elasticity_group = "Inelastic"
-            description = "การเปลี่ยนแปลงราคาส่งผลต่ออุปสงค์น้อยมาก"
+        if df.empty:
+            return {
+                "total_rows": "0",
+                "total_columns": "0",
+                "missing_summary": "No data"
+            }
+        
+        total_rows = len(df)
+        total_cols = len(df.columns)
+        
+        # Calculate missing values
+        missing_counts = df.isnull().sum()
+        total_missing = missing_counts.sum()
+        
+        if total_missing == 0:
+            missing_summary = "No missing values ✓"
         else:
-            elasticity_group = "Elastic"
-            description = "การเปลี่ยนแปลงราคาส่งผลต่ออุปสงค์มาก"
-
+            missing_pct = (total_missing / (total_rows * total_cols)) * 100
+            missing_summary = f"{total_missing:,} cells ({missing_pct:.2f}%)"
+        
         return {
-            "price_coefficient": f"{price_coef:.4f}",
-            "elasticity_group": elasticity_group,
-            "description": description
+            "total_rows": f"{total_rows:,}",
+            "total_columns": str(total_cols),
+            "missing_summary": missing_summary
         }
     except Exception as e:
-        logger.error(f"Error calculating elasticity: {e}")
-        return {"price_coefficient": "N/A", "elasticity_group": "Error", "description": "เกิดข้อผิดพลาด"}
+        logger.error(f"Error in calculate_data_health: {e}", exc_info=True)
+        return {
+            "total_rows": "Error",
+            "total_columns": "Error",
+            "missing_summary": f"Error: {str(e)}"
+        }
 
-def calculate_promotion_score(df):
-    """Uses the manual Promotion Coefficient to determine promotion effectiveness."""
-    score = COEFFICIENTS.get('Promotion', 0)
-    
-    if score >= 20:
-        interpretation = "สูงมาก (20+): โปรโมชั่นมีผลต่อ Demand สูงสุด"
-    elif score >= 10:
-        interpretation = "ปานกลาง (10-20): โปรโมชั่นมีผลดี"
-    elif score >= 0:
-        interpretation = "ต่ำ (0-10): โปรโมชั่นอาจไม่มีประสิทธิภาพ"
-    else:
-        interpretation = "ติดลบ (<0): โปรโมชั่นส่งผลลบ"
-        
-    return {"score": f"{score:.3f}", "interpretation": interpretation}
-
-
-def calculate_revenue_volatility(df):
-    """Calculates the standard deviation of monthly revenue."""
-    if df.empty or 'Date' not in df.columns or 'Revenue' not in df.columns:
-        return {"volatility": "N/A", "description": "ต้องมีคอลัมน์ Date และ Revenue หรือข้อมูลว่างเปล่า"}
-        
+def calculate_promotion_roi(df):
+    """F4: Analyzes ROI of promotions by comparing revenue during promo vs non-promo periods."""
     try:
+        if df.empty:
+            return {
+                "avg_revenue_with_promo": "N/A",
+                "avg_revenue_without_promo": "N/A",
+                "roi_percentage": "N/A"
+            }
+        
+        if 'Promotion' not in df.columns or 'Revenue' not in df.columns:
+            return {
+                "avg_revenue_with_promo": "Missing columns",
+                "avg_revenue_without_promo": "Missing columns",
+                "roi_percentage": "N/A"
+            }
+        
         df_copy = df.copy()
-        df_copy['Date'] = pd.to_datetime(df_copy['Date'], errors='coerce').dt.normalize()
-        df_copy = df_copy.dropna(subset=['Date'])
+        
+        df_copy['Promotion'] = safe_numeric_column(df_copy, 'Promotion')
+        df_copy['Revenue'] = safe_numeric_column(df_copy, 'Revenue')
+        
+        df_copy = df_copy.dropna(subset=['Promotion', 'Revenue'])
         
         if df_copy.empty:
-            return {"volatility": "N/A", "description": "ไม่พบข้อมูลวันที่ที่ถูกต้อง"}
-
-        df_copy['YearMonth'] = df_copy['Date'].dt.to_period('M')
-        monthly_revenue = df_copy.groupby('YearMonth')['Revenue'].sum()
-        volatility = monthly_revenue.std()
+            return {
+                "avg_revenue_with_promo": "No valid data",
+                "avg_revenue_without_promo": "No valid data",
+                "roi_percentage": "N/A"
+            }
         
-        return {"volatility": f"฿{volatility:,.2f}", 
-                "description": "ค่าเบี่ยงเบนมาตรฐานของรายได้รายเดือน"}
-    except Exception:
-        return {"volatility": "N/A", "description": "เกิดข้อผิดพลาดในการคำนวณ"}
+        promo_data = df_copy[df_copy['Promotion'] == 1]['Revenue']
+        non_promo_data = df_copy[df_copy['Promotion'] == 0]['Revenue']
+        
+        if promo_data.empty or non_promo_data.empty:
+            return {
+                "avg_revenue_with_promo": "No promo data" if promo_data.empty else f"฿{promo_data.mean():,.2f}",
+                "avg_revenue_without_promo": "No non-promo data" if non_promo_data.empty else f"฿{non_promo_data.mean():,.2f}",
+                "roi_percentage": "Insufficient data"
+            }
+        
+        promo_revenue = promo_data.mean()
+        non_promo_revenue = non_promo_data.mean()
+        
+        if non_promo_revenue > 0:
+            roi = ((promo_revenue - non_promo_revenue) / non_promo_revenue) * 100
+        else:
+            roi = 0
+        
+        return {
+            "avg_revenue_with_promo": f"฿{promo_revenue:,.2f}",
+            "avg_revenue_without_promo": f"฿{non_promo_revenue:,.2f}",
+            "roi_percentage": f"{roi:+.2f}%"
+        }
+    except Exception as e:
+        logger.error(f"Error in calculate_promotion_roi: {e}", exc_info=True)
+        return {
+            "avg_revenue_with_promo": "Error",
+            "avg_revenue_without_promo": "Error",
+            "roi_percentage": f"Error: {str(e)}"
+        }
 
-def calculate_yoy_growth(df):
-    """Calculates year-over-year revenue growth."""
-    if df.empty or 'Date' not in df.columns or 'Revenue' not in df.columns:
-        return {"yoy_growth": "N/A", "description": "ต้องมีคอลัมน์ Date และ Revenue หรือข้อมูลว่างเปล่า"}
-
+def calculate_demand_forecast_accuracy(df):
+    """F5: Measures how accurately we're predicting demand (Demand vs Units Sold)."""
     try:
+        if df.empty:
+            return {"forecast_accuracy": "N/A", "avg_error": "N/A"}
+        
+        if 'Demand' not in df.columns or 'Units Sold' not in df.columns:
+            return {"forecast_accuracy": "Missing columns", "avg_error": "N/A"}
+        
         df_copy = df.copy()
-        df_copy['Date'] = pd.to_datetime(df_copy['Date'], errors='coerce').dt.normalize()
-        df_copy = df_copy.dropna(subset=['Date'])
+        
+        df_copy['Demand'] = safe_numeric_column(df_copy, 'Demand')
+        df_copy['Units Sold'] = safe_numeric_column(df_copy, 'Units Sold')
+        
+        df_copy = df_copy.dropna(subset=['Demand', 'Units Sold'])
         
         if df_copy.empty:
-            return {"yoy_growth": "N/A", "description": "ไม่พบข้อมูลวันที่ที่ถูกต้อง"}
+            return {"forecast_accuracy": "No valid data", "avg_error": "N/A"}
+        
+        df_copy['Forecast_Error'] = abs(df_copy['Demand'] - df_copy['Units Sold'])
+        df_copy['Accuracy'] = 1 - (df_copy['Forecast_Error'] / df_copy['Demand'].replace(0, np.nan))
+        
+        df_copy = df_copy.replace([np.inf, -np.inf], np.nan).dropna(subset=['Accuracy'])
+        
+        if df_copy.empty:
+            return {"forecast_accuracy": "Cannot calculate", "avg_error": "N/A"}
+        
+        avg_accuracy = df_copy['Accuracy'].mean() * 100
+        avg_error = df_copy['Forecast_Error'].mean()
+        
+        return {
+            "forecast_accuracy": f"{avg_accuracy:.2f}%",
+            "avg_error": f"{avg_error:.0f} units"
+        }
+    except Exception as e:
+        logger.error(f"Error in calculate_demand_forecast_accuracy: {e}", exc_info=True)
+        return {"forecast_accuracy": f"Error: {str(e)}", "avg_error": "N/A"}
+
+def calculate_regional_performance(df):
+    """F6: Ranks regions by revenue per unit sold (efficiency)."""
+    try:
+        if df.empty:
+            return {"top_region": "N/A", "revenue_per_unit": "N/A"}
+        
+        if 'Region' not in df.columns or 'Revenue' not in df.columns or 'Units Sold' not in df.columns:
+            return {"top_region": "Missing columns", "revenue_per_unit": "N/A"}
+        
+        df_copy = df.copy()
+        
+        df_copy['Revenue'] = safe_numeric_column(df_copy, 'Revenue')
+        df_copy['Units Sold'] = safe_numeric_column(df_copy, 'Units Sold')
+        
+        df_copy = df_copy.dropna(subset=['Region', 'Revenue', 'Units Sold'])
+        
+        if df_copy.empty:
+            return {"top_region": "No valid data", "revenue_per_unit": "N/A"}
+        
+        regional_stats = df_copy.groupby('Region').agg({
+            'Revenue': 'sum',
+            'Units Sold': 'sum'
+        })
+        
+        regional_stats['Revenue_Per_Unit'] = regional_stats['Revenue'] / regional_stats['Units Sold'].replace(0, np.nan)
+        regional_stats = regional_stats.dropna(subset=['Revenue_Per_Unit'])
+        
+        if regional_stats.empty:
+            return {"top_region": "Cannot calculate", "revenue_per_unit": "N/A"}
+        
+        top_region = regional_stats['Revenue_Per_Unit'].idxmax()
+        top_value = regional_stats['Revenue_Per_Unit'].max()
+        
+        return {
+            "top_region": str(top_region),
+            "revenue_per_unit": f"฿{top_value:,.2f}"
+        }
+    except Exception as e:
+        logger.error(f"Error in calculate_regional_performance: {e}", exc_info=True)
+        return {"top_region": f"Error: {str(e)}", "revenue_per_unit": "N/A"}
+
+def calculate_epidemic_impact_analysis(df):
+    """F7: Analyzes how epidemic affects units sold and revenue."""
+    try:
+        if df.empty:
+            return {
+                "units_sold_impact": "N/A",
+                "revenue_impact": "N/A"
+            }
+        
+        if 'Epidemic' not in df.columns:
+            return {
+                "units_sold_impact": "Missing Epidemic column",
+                "revenue_impact": "Missing Epidemic column"
+            }
+        
+        df_copy = df.copy()
+        
+        df_copy['Epidemic'] = safe_numeric_column(df_copy, 'Epidemic')
+        
+        if 'Units Sold' in df_copy.columns:
+            df_copy['Units Sold'] = safe_numeric_column(df_copy, 'Units Sold')
+        if 'Revenue' in df_copy.columns:
+            df_copy['Revenue'] = safe_numeric_column(df_copy, 'Revenue')
+        
+        df_copy = df_copy.dropna(subset=['Epidemic'])
+        
+        if df_copy.empty:
+            return {
+                "units_sold_impact": "No valid data",
+                "revenue_impact": "No valid data"
+            }
+        
+        # Compare units sold during epidemic vs normal
+        units_impact = "N/A"
+        if 'Units Sold' in df_copy.columns:
+            epidemic_units = df_copy[df_copy['Epidemic'] == 1]['Units Sold'].dropna()
+            normal_units = df_copy[df_copy['Epidemic'] == 0]['Units Sold'].dropna()
             
-        df_copy['Year'] = df_copy['Date'].dt.year
-    except Exception:
-        return {"yoy_growth": "N/A", "description": "ไม่สามารถแปลงวันที่ได้"}
+            if not epidemic_units.empty and not normal_units.empty:
+                units_epidemic = epidemic_units.mean()
+                units_normal = normal_units.mean()
+                if units_normal > 0:
+                    units_impact = f"{((units_epidemic - units_normal) / units_normal * 100):+.2f}%"
+        
+        revenue_impact = "N/A"
+        if 'Revenue' in df_copy.columns:
+            epidemic_revenue = df_copy[df_copy['Epidemic'] == 1]['Revenue'].dropna()
+            normal_revenue = df_copy[df_copy['Epidemic'] == 0]['Revenue'].dropna()
+            
+            if not epidemic_revenue.empty and not normal_revenue.empty:
+                revenue_epidemic = epidemic_revenue.mean()
+                revenue_normal = normal_revenue.mean()
+                if revenue_normal > 0:
+                    revenue_impact = f"{((revenue_epidemic - revenue_normal) / revenue_normal * 100):+.2f}%"
+        
+        return {
+            "units_sold_impact": units_impact,
+            "revenue_impact": revenue_impact
+        }
+    except Exception as e:
+        logger.error(f"Error in calculate_epidemic_impact_analysis: {e}", exc_info=True)
+        return {
+            "units_sold_impact": f"Error: {str(e)}",
+            "revenue_impact": "Error"
+        }
 
-    valid_years = df_copy['Year'].unique()
-    if len(valid_years) < 2:
-        return {"yoy_growth": "N/A", "description": "ข้อมูลไม่ครอบคลุม 2 ปี"}
+def calculate_pricing_effectiveness(df):
+    """F8: Analyzes price sensitivity - correlation between price changes and units sold."""
+    try:
+        if df.empty:
+            return {"price_correlation": "N/A", "optimal_price_range": "N/A"}
+        
+        if 'Price' not in df.columns or 'Units Sold' not in df.columns:
+            return {"price_correlation": "Missing columns", "optimal_price_range": "N/A"}
+        
+        df_copy = df.copy()
 
-    current_year = df_copy['Year'].max()
-    previous_year = current_year - 1
-    
-    revenue_current = df_copy[df_copy['Year'] == current_year]['Revenue'].sum()
-    revenue_previous = df_copy[df_copy['Year'] == previous_year]['Revenue'].sum()
+        df_copy['Price'] = safe_numeric_column(df_copy, 'Price')
+        df_copy['Units Sold'] = safe_numeric_column(df_copy, 'Units Sold')
+        
+        df_copy = df_copy.dropna(subset=['Price', 'Units Sold'])
+        
+        if df_copy.empty or len(df_copy) < 2:
+            return {"price_correlation": "Insufficient data", "optimal_price_range": "N/A"}
+        
+        correlation = df_copy['Price'].corr(df_copy['Units Sold'])
+        
+        # Find price range with highest units sold
+        try:
+            df_copy['Price_Bin'] = pd.cut(df_copy['Price'], bins=5)
+            price_analysis = df_copy.groupby('Price_Bin', observed=True)['Units Sold'].mean()
+            
+            if not price_analysis.empty:
+                optimal_bin = price_analysis.idxmax()
+                optimal_range = str(optimal_bin)
+            else:
+                optimal_range = "Cannot determine"
+        except:
+            optimal_range = "Cannot determine"
+        
+        return {
+            "price_correlation": f"{correlation:.3f}" if not pd.isna(correlation) else "N/A",
+            "optimal_price_range": optimal_range
+        }
+    except Exception as e:
+        logger.error(f"Error in calculate_pricing_effectiveness: {e}", exc_info=True)
+        return {"price_correlation": f"Error: {str(e)}", "optimal_price_range": "N/A"}
 
-    if revenue_previous == 0:
-        yoy_growth = "0.00%"
-        description = "รายได้ปีก่อนหน้าเป็นศูนย์"
-    else:
-        yoy_growth_rate = ((revenue_current - revenue_previous) / revenue_previous) * 100
-        description = f"อัตราการเติบโต YoY จากปี {previous_year} ถึง {current_year}"
-        yoy_growth = f"{yoy_growth_rate:,.2f}%"
-
-    return {"yoy_growth": yoy_growth, "description": description}
+def calculate_category_trends(df):
+    """F9: Identifies trending categories (growing vs declining)."""
+    try:
+        if df.empty:
+            return {"trending_up": "N/A", "trending_down": "N/A"}
+        
+        if 'Category' not in df.columns or 'Date' not in df.columns or 'Units Sold' not in df.columns:
+            return {"trending_up": "Missing columns", "trending_down": "N/A"}
+        
+        df_copy = df.copy()
+        
+        # Convert to datetime
+        df_copy['Date'] = pd.to_datetime(df_copy['Date'], errors='coerce')
+        df_copy['Units Sold'] = safe_numeric_column(df_copy, 'Units Sold')
+        
+        df_copy = df_copy.dropna(subset=['Date', 'Category', 'Units Sold'])
+        
+        if df_copy.empty:
+            return {"trending_up": "No valid data", "trending_down": "N/A"}
+        
+        df_copy['Month'] = df_copy['Date'].dt.to_period('M')
+        
+        # Compare last 3 months vs previous 3 months
+        latest_month = df_copy['Month'].max()
+        
+        if pd.isna(latest_month):
+            return {"trending_up": "Cannot determine", "trending_down": "N/A"}
+        
+        last_3_months = df_copy[df_copy['Month'] >= (latest_month - 2)]
+        prev_3_months = df_copy[(df_copy['Month'] < (latest_month - 2)) & (df_copy['Month'] >= (latest_month - 5))]
+        
+        if last_3_months.empty or prev_3_months.empty:
+            return {"trending_up": "Insufficient date range", "trending_down": "N/A"}
+        
+        current_sales = last_3_months.groupby('Category')['Units Sold'].sum()
+        previous_sales = prev_3_months.groupby('Category')['Units Sold'].sum()
+        
+        # Find common categories
+        common_cats = current_sales.index.intersection(previous_sales.index)
+        
+        if len(common_cats) == 0:
+            return {"trending_up": "No common categories", "trending_down": "N/A"}
+        
+        growth = {}
+        for cat in common_cats:
+            if previous_sales[cat] > 0:
+                growth[cat] = ((current_sales[cat] - previous_sales[cat]) / previous_sales[cat] * 100)
+        
+        if not growth:
+            return {"trending_up": "Cannot calculate growth", "trending_down": "N/A"}
+        
+        growth_series = pd.Series(growth).sort_values(ascending=False)
+        
+        trending_up = growth_series.head(2)
+        trending_down = growth_series.tail(2)
+        
+        up_text = [f"{cat} (+{val:.1f}%)" for cat, val in trending_up.items() if val > 0]
+        down_text = [f"{cat} ({val:.1f}%)" for cat, val in trending_down.items() if val < 0]
+        
+        return {
+            "trending_up": ", ".join(up_text) if up_text else "No significant growth",
+            "trending_down": ", ".join(down_text) if down_text else "No significant decline"
+        }
+    except Exception as e:
+        logger.error(f"Error in calculate_category_trends: {e}", exc_info=True)
+        return {"trending_up": f"Error: {str(e)}", "trending_down": "Error"}
 
 def run_analysis(df):
-    """Runs all analysis functions and returns a summary dictionary."""
+    """Runs all NEW analysis functions."""
     if df.empty:
-        logger.warning("Attempting to run analysis on empty DataFrame. Returning default empty metrics.")
-        empty_cols = ['Date', 'Product_ID', 'Price', 'Units Ordered', 'Revenue', 'Promotion', 'Epidemic', 'Demand']
+        logger.warning("Empty DataFrame. Returning default metrics.")
         return {
-            "metrics": {"total_rows": "0", "missing_summary": calculate_missing_values(df, empty_cols), "rolling_avg_revenue": "N/A", "epidemic_revenue": "N/A"},
-            "alerts": {"top5_demand_gap": ["No data"]},
-            "elasticity": calculate_elasticity_groups(pd.DataFrame()), # Pass empty df, but this function only uses COEFFICIENTS
-            "promotion": calculate_promotion_score(pd.DataFrame()),    # Same as above
-            "volatility": {"volatility": "N/A", "description": "ต้องมีคอลัมน์ Date และ Revenue หรือข้อมูลว่างเปล่า"},
-            "yoy": {"yoy_growth": "N/A", "description": "ข้อมูลไม่ครอบคลุม 2 ปี"}
+            "promotion_roi": {"avg_revenue_with_promo": "N/A", "avg_revenue_without_promo": "N/A", "roi_percentage": "N/A"},
+            "forecast_accuracy": {"forecast_accuracy": "N/A", "avg_error": "N/A"},
+            "regional_performance": {"top_region": "N/A", "revenue_per_unit": "N/A"},
+            "epidemic_impact": {"units_sold_impact": "N/A", "revenue_impact": "N/A"},
+            "pricing_effectiveness": {"price_correlation": "N/A", "optimal_price_range": "N/A"},
+            "category_trends": {"trending_up": "N/A", "trending_down": "N/A"}
         }
-
-
-    required_cols = ['Date', 'Product_ID', 'Price', 'Units Ordered', 'Revenue', 'Promotion', 'Epidemic', 'Demand']
     
-    missing_summary = calculate_missing_values(df, [col for col in required_cols if col in df.columns])
-    total_rows = len(df)
+    logger.info(f"Running analysis on {len(df)} rows with columns: {df.columns.tolist()}")
     
-    rolling_avg_revenue = "N/A"
-    try:
-        df_temp = df.copy()
-        df_temp['Date'] = pd.to_datetime(df_temp['Date'], errors='coerce').dt.normalize()
-        df_sorted = df_temp.dropna(subset=['Date']).sort_values(by='Date')
-        
-        if not df_sorted.empty:
-            rolling_avg_revenue = df_sorted['Revenue'].rolling(window=30, min_periods=1).mean().iloc[-1]
-            rolling_avg_revenue = f"฿{rolling_avg_revenue:,.2f}"
-    except:
-        pass
-    
-    top5_gaps = get_demand_gap_alert(df)
-    elasticity_data = calculate_elasticity_groups(df)
-    promotion_data = calculate_promotion_score(df)
-    volatility_data = calculate_revenue_volatility(df)
-    yoy_data = calculate_yoy_growth(df)
-
-    epidemic_revenue = "N/A"
-    try:
-        if 'Epidemic' in df.columns:
-            df_temp = df.copy()
-            # FIX: Convert Epidemic to numeric (float) to safely handle both 1 and 1.0 from CSV
-            df_temp['Epidemic'] = pd.to_numeric(df_temp['Epidemic'], errors='coerce') 
-            epidemic_revenue = df_temp[df_temp['Epidemic'] == 1.0]['Revenue'].sum() 
-            epidemic_revenue = f"฿{epidemic_revenue:,.2f}"
-    except:
-        pass
-
     return {
-        "metrics": {
-            "total_rows": f"{total_rows:,}",
-            "missing_summary": missing_summary,
-            "rolling_avg_revenue": rolling_avg_revenue,
-            "epidemic_revenue": epidemic_revenue,
-        },
-        "alerts": {
-            "top5_demand_gap": top5_gaps
-        },
-        "elasticity": elasticity_data,
-        "promotion": promotion_data,
-        "volatility": volatility_data,
-        "yoy": yoy_data
+        "promotion_roi": calculate_promotion_roi(df),
+        "forecast_accuracy": calculate_demand_forecast_accuracy(df),
+        "regional_performance": calculate_regional_performance(df),
+        "epidemic_impact": calculate_epidemic_impact_analysis(df),
+        "pricing_effectiveness": calculate_pricing_effectiveness(df),
+        "category_trends": calculate_category_trends(df)
     }
 
 # --- API Routes ---
@@ -286,10 +511,15 @@ def upload_file():
         if os.path.exists(LIVE_DATA_PATH) and os.path.getsize(LIVE_DATA_PATH) > 0:
             try:
                 df = pd.read_csv(LIVE_DATA_PATH)
+                df = normalize_column_names(df)
+                logger.info(f"Loaded {len(df)} rows from existing file")
+                logger.info(f"Columns: {df.columns.tolist()}")
                 analysis_summary = run_analysis(df)
+                data_health = calculate_data_health(df)
                 response_data = {
-                    "message": "Loaded existing data and ran analysis (Manual Formula)",
-                    "analysis_summary": analysis_summary
+                    "message": "Loaded existing data and ran analysis",
+                    "analysis_summary": analysis_summary,
+                    "data_health": data_health
                 }
                 return app.response_class(
                     response=json.dumps(response_data, cls=NpEncoder),
@@ -297,25 +527,32 @@ def upload_file():
                     mimetype='application/json'
                 )
             except Exception as e:
-                logger.error(f"Error reading existing file: {e}") 
-                # IMPORTANT: If existing file fails, try to create dummy data instead of crashing
+                logger.error(f"Error reading existing file: {e}", exc_info=True)
                 create_initial_data()
                 df = pd.read_csv(LIVE_DATA_PATH)
+                df = normalize_column_names(df)
                 analysis_summary = run_analysis(df)
+                data_health = calculate_data_health(df)
                 response_data = {
-                    "message": f"Error reading old data, created new dummy data: {str(e)}",
-                    "analysis_summary": analysis_summary
+                    "message": f"Created new dummy data",
+                    "analysis_summary": analysis_summary,
+                    "data_health": data_health
                 }
                 return app.response_class(
                     response=json.dumps(response_data, cls=NpEncoder),
                     status=200,
                     mimetype='application/json'
                 )
-
-        # No data exists, return analysis on empty DataFrame
+        
+        create_initial_data()
+        df = pd.read_csv(LIVE_DATA_PATH)
+        df = normalize_column_names(df)
+        analysis_summary = run_analysis(df)
+        data_health = calculate_data_health(df)
         response_data = {
-            "message": "Ready to upload. No initial data loaded", 
-            "analysis_summary": run_analysis(pd.DataFrame())
+            "message": "Created initial dummy data",
+            "analysis_summary": analysis_summary,
+            "data_health": data_health
         }
         return app.response_class(
             response=json.dumps(response_data, cls=NpEncoder),
@@ -333,27 +570,24 @@ def upload_file():
         else:
             return jsonify({"error": "Unsupported file format"}), 400
         
-        # Data cleaning and prep
-        if 'Units Ordered' not in df.columns or 'Revenue' not in df.columns:
-            return jsonify({"error": "Missing critical columns: 'Units Ordered' or 'Revenue'"}), 400
-
-        if 'Demand' not in df.columns:
-            df['Demand'] = df['Units Ordered'] + (df['Revenue'] / 1000) * 0.1 + np.random.randint(20, 50, len(df))
-            
-        if 'Product_ID' not in df.columns:
-            df['Product_ID'] = 'P_Def' + (df.index % 5).astype(str)
+        logger.info(f"Uploaded file has {len(df)} rows and columns: {df.columns.tolist()}")
+        
+        # Normalize column names
+        df = normalize_column_names(df)
         
         if 'Date' in df.columns:
             df['Date'] = pd.to_datetime(df['Date'], errors='coerce').dt.normalize()
 
         df.to_csv(LIVE_DATA_PATH, index=False)
-        logger.info(f"File '{uploaded_file.filename}' successfully saved")
+        logger.info(f"File '{uploaded_file.filename}' successfully saved with normalized columns")
         
         analysis_summary = run_analysis(df)
+        data_health = calculate_data_health(df)
         
         response_data = {
-            "message": f"File '{uploaded_file.filename}' successfully processed (Manual Formula)",
-            "analysis_summary": analysis_summary
+            "message": f"File '{uploaded_file.filename}' successfully processed",
+            "analysis_summary": analysis_summary,
+            "data_health": data_health
         }
         return app.response_class(
             response=json.dumps(response_data, cls=NpEncoder),
@@ -372,36 +606,28 @@ def upload_file():
 
 @app.route('/api/predict', methods=['POST'])
 def predict_demand():
+    """NEW FORMULA: Predicted Demand = 33.7221 + 0.7439(Units Sold) + 0.0516(Units Ordered) + 8.6003(Promotion) − 14.5887(Epidemic)"""
     logger.info("Received request to /api/predict")
     data = request.json
     
     try:
-        units_ordered = data.get('units_ordered')
-        price = data.get('price')
-        promotion = data.get('promotion')
-        epidemic = data.get('epidemic')
+        units_sold = float(data.get('units_sold', 0))
+        units_ordered = float(data.get('units_ordered', 0))
+        promotion = float(data.get('promotion', 0))
+        epidemic = float(data.get('epidemic', 0))
         
-        # Ensure conversion to float for calculation
-        units_ordered = float(units_ordered) if units_ordered is not None else None
-        price = float(price) if price is not None else None
-        promotion = float(promotion) if promotion is not None else None
-        epidemic = float(epidemic) if epidemic is not None else None
-        
-        if any(v is None for v in [units_ordered, price, promotion, epidemic]):
+        if any(v is None for v in [units_sold, units_ordered, promotion, epidemic]):
             return jsonify({"error": "Missing or invalid input parameters"}), 400
 
-        # --- MANUAL CALCULATION based on Excel Formula ---
-        # Demand = 99.68 + (0.1279 * Units Ordered) - (0.0769 * Price) + (18.489 * Promotion) - (38.169 * Epidemic)
         prediction = (
             COEFFICIENTS['Intercept'] +
+            (COEFFICIENTS['Units Sold'] * units_sold) +
             (COEFFICIENTS['Units Ordered'] * units_ordered) +
-            (COEFFICIENTS['Price'] * price) +
             (COEFFICIENTS['Promotion'] * promotion) +
             (COEFFICIENTS['Epidemic'] * epidemic)
         )
-        # ----------------------------------------------------
         
-        explanation = f"Prediction based on: Units={units_ordered}, Price={price:,.2f}, Promo={'Yes' if promotion == 1 else 'No'}. Epidemic={'Yes' if epidemic == 1 else 'No'}"
+        explanation = f"Based on: Sold={units_sold:.0f}, Ordered={units_ordered:.0f}, Promo={'Yes' if promotion == 1 else 'No'}, Epidemic={'Yes' if epidemic == 1 else 'No'}"
 
         response_data = {
             "predicted_demand": f"{prediction:,.2f}",
@@ -420,19 +646,19 @@ def predict_demand():
 
 # --- Run Server ---
 if __name__ == '__main__':
-    # MANDATORY: Ensure data directory and initial data exists before running the app
-    create_initial_data() 
+    create_initial_data()
     
     try:
-        # Load data for initial analysis summary to be available
         if os.path.exists(LIVE_DATA_PATH) and os.path.getsize(LIVE_DATA_PATH) > 0:
             df_initial = pd.read_csv(LIVE_DATA_PATH)
-            run_analysis(df_initial) 
-            logger.info("Initial analysis ran successfully with manual formula")
+            df_initial = normalize_column_names(df_initial)
+            logger.info(f"Initial data loaded: {len(df_initial)} rows")
+            logger.info(f"Columns available: {df_initial.columns.tolist()}")
+            run_analysis(df_initial)
+            logger.info("Initial analysis completed successfully")
     except Exception as e:
-        logger.warning(f"Could not load initial data or run analysis: {e}")
+        logger.warning(f"Could not load initial data: {e}")
         
     logger.info(f"Flask server starting. Data path: {LIVE_DATA_PATH}")
     logger.info("Server will run on http://0.0.0.0:5000")
-    # NO CHANGE TO THE CONNECTION PART (host='0.0.0.0', port=5000)
     app.run(debug=True, host='0.0.0.0', port=5000)

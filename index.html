@@ -1,384 +1,649 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="th">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sales & Data Analysis Dashboard</title>
+    <title>AI Sales Analysis Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f7f9fc; }
-        .card { transition: all 0.3s ease; border-left: 5px solid; }
-        .card:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
-        .status-message { min-height: 20px; }
-        .tooltip { position: relative; display: inline-block; cursor: help; }
-        .tooltip .tooltiptext {
-            visibility: hidden;
-            width: 250px;
-            background-color: #374151;
-            color: #fff;
-            text-align: left;
-            border-radius: 6px;
-            padding: 8px 10px;
-            position: absolute;
-            z-index: 10;
-            bottom: 125%;
-            left: 50%;
-            margin-left: -125px;
-            opacity: 0;
-            transition: opacity 0.3s;
-            font-size: 0.8rem;
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #fef3f9 0%, #fef9e7 25%, #e8f5fe 50%, #f3e8ff 75%, #fef3f9 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
-        .tooltip:hover .tooltiptext {
-            visibility: visible;
-            opacity: 1;
+        .sidebar {
+            width: 280px;
+            background: linear-gradient(180deg, #ffd4e5 0%, #d4e5ff 25%, #fffacd 50%, #e5d4ff 75%, #ffd4e5 100%);
+            border-right: 2px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            position: fixed;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 1.5rem;
+            overflow-y: auto;
         }
-        .tooltip .tooltiptext::after {
-            content: "";
+        .main-content {
+            margin-left: 280px;
+            flex-grow: 1;
+            padding: 2rem;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+        }
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #ec4899;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            border-radius: 1rem;
+            color: #374151;
+            transition: all 0.3s ease-in-out;
+            margin-bottom: 0.5rem;
+            background: rgba(255, 255, 255, 0.5);
+            backdrop-filter: blur(5px);
+        }
+        .nav-item.active {
+            background: rgba(255, 255, 255, 0.95);
+            color: #ec4899;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(236, 72, 153, 0.3);
+            transform: translateX(5px);
+        }
+        .nav-item:hover {
+            background: rgba(255, 255, 255, 0.8);
+            cursor: pointer;
+            transform: translateX(3px);
+        }
+        .section-content {
+            display: none;
+        }
+        .section-content.active {
+            display: block;
+        }
+        .powerbi-container {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%;
+            overflow: hidden;
+            border-radius: 1rem;
+        }
+        .powerbi-container iframe {
             position: absolute;
-            top: 100%;
-            left: 50%;
-            margin-left: -5px;
-            border-width: 5px;
-            border-style: solid;
-            border-color: #374151 transparent transparent transparent;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        .gradient-pink {
+            background: linear-gradient(135deg, #ffd4e5 0%, #ffb3d9 100%);
+        }
+        .gradient-blue {
+            background: linear-gradient(135deg, #d4e5ff 0%, #b3d9ff 100%);
+        }
+        .gradient-yellow {
+            background: linear-gradient(135deg, #fffacd 0%, #fff4a3 100%);
+        }
+        .gradient-purple {
+            background: linear-gradient(135deg, #e5d4ff 0%, #d9b3ff 100%);
+        }
+        .gradient-green {
+            background: linear-gradient(135deg, #d4ffd4 0%, #b3ffb3 100%);
+        }
+        .gradient-orange {
+            background: linear-gradient(135deg, #ffe5d4 0%, #ffd4b3 100%);
+        }
+        .gradient-teal {
+            background: linear-gradient(135deg, #d4fff5 0%, #b3ffe8 100%);
         }
     </style>
 </head>
-<body class="p-4 md:p-8">
-    <div id="app" class="max-w-7xl mx-auto">
+<body class="flex">
+
+    <aside class="sidebar z-50">
+        <div class="mb-8 flex items-center justify-center p-4 bg-white bg-opacity-80 rounded-2xl shadow-lg">
+            <div class="text-4xl">📊</div>
+            <span class="text-pink-600 text-lg ml-2 font-bold">SALES ANALYSIS</span>
+        </div>
+
+        <nav class="flex-grow">
+            <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-3 px-3">Main Menu</h3>
+            <ul>
+                <li>
+                    <a href="#" class="nav-item active" data-section="data-management">
+                        <svg class="w-5 h-5 mr-3 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                        <span>Data Upload</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="nav-item" data-section="insights-analysis">
+                        <svg class="w-5 h-5 mr-3 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                        <span>Business Insights</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="nav-item" data-section="demand-prediction">
+                        <svg class="w-5 h-5 mr-3 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                        <span>Demand Predictor</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="nav-item" data-section="powerbi-visualization">
+                        <svg class="w-5 h-5 mr-3 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 2v-6m2 9H7a2 2 0 01-2-2V5a2 2 0 012-2h10a2 2 0 012 2v14a2 2 0 01-2 2z"></path></svg>
+                        <span>Power BI Dashboard</span>
+                    </a>
+                </li>
+            </ul>
+        </nav>
         
-        <!-- Header & Upload Section -->
-        <header class="text-center mb-10">
-            <h1 class="text-3xl md:text-4xl font-extrabold text-gray-800">Sales & Demand Insight Dashboard</h1>
-            <p class="text-gray-500 mt-2">Upload new data to update Python Analysis and Power BI Report.</p>
+        <div class="mt-8 p-4 bg-white bg-opacity-70 rounded-2xl text-sm">
+            <h4 class="font-semibold mb-2 text-gray-700">✨ System Info</h4>
+            <p class="text-gray-600">Version 2.0</p>
+            <p class="text-gray-600">Updated: Nov 2024</p>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <header class="flex items-center justify-between card p-6 rounded-2xl mb-8">
+            <h1 id="page-title" class="text-3xl font-bold bg-gradient-to-r from-pink-500 to-purple-500 bg-clip-text text-transparent">Data Upload</h1>
+            <div class="flex items-center space-x-4">
+                <div id="connection-status" class="text-sm px-4 py-2 rounded-full bg-gray-200 text-gray-600 font-medium">
+                    Checking...
+                </div>
+                <div class="w-10 h-10 bg-gradient-to-br from-pink-400 to-purple-400 rounded-full flex items-center justify-center text-sm font-bold text-white shadow-lg">AI</div>
+            </div>
         </header>
 
-        <section class="bg-white p-6 rounded-xl shadow-lg mb-8">
-            <h2 class="text-xl font-semibold text-gray-700 mb-4">1. Data Upload & Processing</h2>
-            <div class="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4">
-                <input type="file" id="data-file" accept=".csv, .xlsx" class="flex-grow p-2 border border-gray-300 rounded-lg text-sm text-gray-700">
-                <button onclick="uploadFile()" id="upload-btn" class="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition duration-150 shadow-md flex-shrink-0">
-                    Process & Upload
-                </button>
+        <!-- DATA MANAGEMENT SECTION -->
+        <section id="data-management-content" class="section-content active space-y-6">
+            <div class="card p-8 rounded-2xl">
+                <h2 class="text-2xl font-bold text-gray-800 border-b-2 border-pink-200 pb-3 mb-6">📁 Upload Your Sales Data</h2>
+                <div class="flex flex-col md:flex-row items-end gap-4">
+                    <div class="flex-grow w-full">
+                        <label for="data-file" class="block text-sm font-semibold text-gray-700 mb-2">Select CSV File</label>
+                        <input type="file" id="data-file" accept=".csv,.xlsx,.xls" class="mt-1 block w-full text-sm text-gray-600
+                            file:mr-4 file:py-3 file:px-6
+                            file:rounded-full file:border-0
+                            file:text-sm file:font-semibold
+                            file:bg-gradient-to-r file:from-pink-400 file:to-purple-400 file:text-white
+                            hover:file:from-pink-500 hover:file:to-purple-500 file:shadow-lg file:cursor-pointer"/>
+                    </div>
+                    <button id="upload-btn" class="w-full md:w-auto px-8 py-3 bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-full hover:from-pink-600 hover:to-purple-600 transition duration-300 flex items-center justify-center shadow-lg font-semibold" disabled>
+                        <span id="upload-text">Upload & Process</span>
+                        <div id="upload-spinner" class="spinner hidden ml-2"></div>
+                    </button>
+                </div>
+                <div id="upload-status" class="text-sm mt-4 text-gray-700 font-medium"></div>
             </div>
-            <div id="status-message" class="status-message mt-4 text-sm font-medium text-gray-600"></div>
-        </section>
 
-        <!-- Key Analysis Section -->
-        <section class="mb-10">
-            <h2 class="text-2xl font-bold text-gray-800 mb-5">2. Key Analysis Functions</h2>
-            <div id="analysis-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                <div id="initial-loading-message" class="col-span-full text-center py-10 text-gray-500">
-                    Waiting for backend connection...
+            <!-- DATA HEALTH CHECK -->
+            <div class="card p-8 rounded-2xl">
+                <h2 class="text-2xl font-bold text-gray-800 border-b-2 border-blue-200 pb-3 mb-6">🏥 Data Health Check</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="p-6 gradient-blue rounded-2xl shadow-lg">
+                        <p class="text-sm font-semibold text-blue-800 mb-2">📊 Total Rows</p>
+                        <div class="text-4xl font-bold text-blue-900" id="health-total-rows">...</div>
+                    </div>
+                    <div class="p-6 gradient-pink rounded-2xl shadow-lg">
+                        <p class="text-sm font-semibold text-pink-800 mb-2">📋 Total Columns</p>
+                        <div class="text-4xl font-bold text-pink-900" id="health-total-cols">...</div>
+                    </div>
+                    <div class="p-6 gradient-yellow rounded-2xl shadow-lg">
+                        <p class="text-sm font-semibold text-yellow-800 mb-2">⚠️ Missing Values</p>
+                        <div class="text-2xl font-bold text-yellow-900" id="health-missing">...</div>
+                    </div>
                 </div>
             </div>
         </section>
 
-        <!-- Demand Prediction Tool -->
-        <section class="bg-white p-6 rounded-xl shadow-lg mb-8">
-            <h2 class="text-xl font-semibold text-gray-700 mb-4">3. Demand Prediction Tool</h2>
-            <div class="flex flex-col space-y-4">
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div>
-                        <label class="text-sm font-medium text-gray-600">Units Ordered</label>
-                        <input type="number" id="units-ordered-input" value="100" class="w-full p-2 border border-gray-300 rounded-lg">
-                    </div>
-                    <div>
-                        <label class="text-sm font-medium text-gray-600">Price</label>
-                        <input type="number" id="price-input" value="510" class="w-full p-2 border border-gray-300 rounded-lg">
-                    </div>
-                    <div>
-                        <label class="text-sm font-medium text-gray-600">Promotion</label>
-                        <select id="promotion-input" class="w-full p-2 border border-gray-300 rounded-lg bg-white">
-                            <option value="1">Active (1)</option>
-                            <option value="0">Inactive (0)</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="text-sm font-medium text-gray-600">Epidemic</label>
-                        <select id="epidemic-input" class="w-full p-2 border border-gray-300 rounded-lg bg-white">
-                            <option value="0">No (0)</option>
-                            <option value="1">Yes (1)</option>
-                        </select>
-                    </div>
-                </div>
-                
-                <button onclick="runPrediction()" id="predict-btn" class="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition duration-150 shadow-md self-start">
-                    Run Prediction
-                </button>
-            </div>
-            
-            <div class="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                <p class="text-lg font-bold text-gray-700">Predicted Demand:</p>
-                <p id="predicted-demand-output" class="text-3xl font-extrabold text-blue-600 mt-1">N/A</p>
-                <p id="prediction-explanation" class="text-sm text-gray-500 mt-2"></p>
-            </div>
-        </section>
-
-        <!-- Power BI Embed Section -->
-        <section class="mb-10">
-            <h2 class="text-2xl font-bold text-gray-800 mb-5">4. Power BI Report</h2>
-            <div class="bg-white p-4 rounded-xl shadow-lg overflow-hidden">
-                <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                    <p class="text-sm text-blue-800">
-                        <strong>Note:</strong> If the report doesn't load:
-                    </p>
-                    <ul class="text-xs text-blue-700 mt-2 ml-4 list-disc">
-                        <li>Ensure you have access to the Power BI report</li>
-                        <li>Check if the report is published and shared publicly</li>
-                        <li>The dataset credentials must be configured in Power BI Service</li>
-                        <li>Click "Refresh Power BI View" after uploading new data</li>
-                    </ul>
+        <!-- BUSINESS INSIGHTS SECTION -->
+        <section id="insights-analysis-content" class="section-content space-y-6">
+            <div class="card p-8 rounded-2xl">
+                <div class="flex justify-between items-center border-b-2 border-purple-200 pb-4 mb-8">
+                    <h2 class="text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">💼 Business Intelligence Analytics</h2>
+                    <button id="refresh-insights-btn" class="px-6 py-3 bg-gradient-to-r from-blue-500 to-teal-500 text-white rounded-full hover:from-blue-600 hover:to-teal-600 transition duration-300 flex items-center text-sm font-semibold shadow-lg">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H4m0 0l1 3m15 0a8.001 8.001 0 01-15.356 2m15.356-2H21m0 0l-1-3"></path></svg>
+                        Refresh All
+                    </button>
                 </div>
                 
-                <div class="relative" style="width: 100%; height: 600px; background: #f3f4f6; border-radius: 8px; overflow: hidden;">
-                    <iframe id="powerbi-embed" 
-                        src="https://app.powerbi.com/view?r=eyJrIjoiYmY2Y2NmZjctODE2OS00N2FlLWFhY2ItZTJlNjAxMzg1M2UxIiwidCI6ImZkMjA2NzE1LTc1MDktNGFlNS05Yjk2LTc2YmI5Nzg4NmE4NCIsImMiOjEwfQ%3D%3D"
-                        frameborder="0" 
-                        allowFullScreen="true"
-                        style="width: 100%; height: 100%; border: none;">
-                    </iframe>
-                    <div id="powerbi-loading" class="absolute inset-0 flex items-center justify-center bg-gray-100 bg-opacity-75" style="display: none;">
-                        <div class="text-center">
-                            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-                            <p class="text-gray-600">Loading Power BI Report...</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <!-- F4: Promotion ROI -->
+                    <div class="p-6 gradient-green rounded-2xl shadow-lg border-l-4 border-green-500 transform hover:scale-105 transition duration-300">
+                        <p class="text-sm font-bold text-green-800 mb-3 flex items-center">
+                            <span class="text-2xl mr-2">💰</span>
+                            Promotion ROI
+                        </p>
+                        <div class="text-3xl font-black text-green-900" id="metric-promo-roi">N/A</div>
+                        <div class="grid grid-cols-2 gap-3 mt-4 text-xs">
+                            <div class="bg-white bg-opacity-50 p-3 rounded-lg">
+                                <p class="text-green-700 font-semibold">With Promo:</p>
+                                <p class="font-bold text-green-900" id="metric-promo-with">N/A</p>
+                            </div>
+                            <div class="bg-white bg-opacity-50 p-3 rounded-lg">
+                                <p class="text-green-700 font-semibold">Without:</p>
+                                <p class="font-bold text-green-900" id="metric-promo-without">N/A</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- F5: Forecast Accuracy -->
+                    <div class="p-6 gradient-purple rounded-2xl shadow-lg border-l-4 border-purple-500 transform hover:scale-105 transition duration-300">
+                        <p class="text-sm font-bold text-purple-800 mb-3 flex items-center">
+                            <span class="text-2xl mr-2">🎯</span>
+                            Forecast Accuracy
+                        </p>
+                        <div class="text-3xl font-black text-purple-900" id="metric-forecast-accuracy">N/A</div>
+                        <p class="text-sm text-purple-800 mt-3 bg-white bg-opacity-50 p-2 rounded-lg">
+                            Avg Error: <span class="font-bold" id="metric-forecast-error">N/A</span>
+                        </p>
+                    </div>
+
+                    <!-- F6: Regional Performance -->
+                    <div class="p-6 gradient-teal rounded-2xl shadow-lg border-l-4 border-teal-500 transform hover:scale-105 transition duration-300">
+                        <p class="text-sm font-bold text-teal-800 mb-3 flex items-center">
+                            <span class="text-2xl mr-2">🌍</span>
+                            Top Region
+                        </p>
+                        <div class="text-3xl font-black text-teal-900" id="metric-top-region">N/A</div>
+                        <p class="text-sm text-teal-800 mt-3 bg-white bg-opacity-50 p-2 rounded-lg">
+                            Revenue/Unit: <span class="font-bold text-lg" id="metric-revenue-per-unit">N/A</span>
+                        </p>
+                    </div>
+                    
+                    <!-- F7: Epidemic Impact -->
+                    <div class="p-6 gradient-orange rounded-2xl shadow-lg border-l-4 border-orange-500 transform hover:scale-105 transition duration-300">
+                        <p class="text-sm font-bold text-orange-800 mb-3 flex items-center">
+                            <span class="text-2xl mr-2">🦠</span>
+                            Epidemic Impact
+                        </p>
+                        <div class="grid grid-cols-2 gap-3 mt-4">
+                            <div class="bg-white bg-opacity-50 p-3 rounded-lg">
+                                <p class="text-xs text-orange-700 font-semibold">Units Impact:</p>
+                                <p class="text-xl font-black text-orange-900" id="metric-epidemic-units">N/A</p>
+                            </div>
+                            <div class="bg-white bg-opacity-50 p-3 rounded-lg">
+                                <p class="text-xs text-orange-700 font-semibold">Revenue Impact:</p>
+                                <p class="text-xl font-black text-orange-900" id="metric-epidemic-revenue">N/A</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- F8: Pricing Effectiveness -->
+                    <div class="p-6 gradient-blue rounded-2xl shadow-lg border-l-4 border-blue-500 transform hover:scale-105 transition duration-300">
+                        <p class="text-sm font-bold text-blue-800 mb-3 flex items-center">
+                            <span class="text-2xl mr-2">💵</span>
+                            Price Sensitivity
+                        </p>
+                        <p class="text-xs text-blue-800 mt-2">Correlation:</p>
+                        <div class="text-3xl font-black text-blue-900" id="metric-price-correlation">N/A</div>
+                        <p class="text-xs text-blue-800 mt-3 bg-white bg-opacity-50 p-2 rounded-lg">
+                            Optimal Range: <span class="font-bold" id="metric-optimal-price">N/A</span>
+                        </p>
+                    </div>
+                    
+                    <!-- F9: Category Trends -->
+                    <div class="p-6 gradient-pink rounded-2xl shadow-lg border-l-4 border-pink-500 transform hover:scale-105 transition duration-300">
+                        <p class="text-sm font-bold text-pink-800 mb-3 flex items-center">
+                            <span class="text-2xl mr-2">📊</span>
+                            Category Trends
+                        </p>
+                        <div class="mt-3 space-y-3">
+                            <div class="bg-white bg-opacity-50 p-3 rounded-lg">
+                                <p class="text-xs text-pink-800 font-semibold mb-1">📈 Trending Up:</p>
+                                <p class="text-sm font-bold text-pink-900" id="metric-trending-up">N/A</p>
+                            </div>
+                            <div class="bg-white bg-opacity-50 p-3 rounded-lg">
+                                <p class="text-xs text-pink-800 font-semibold mb-1">📉 Trending Down:</p>
+                                <p class="text-sm font-bold text-pink-900" id="metric-trending-down">N/A</p>
+                            </div>
                         </div>
                     </div>
                 </div>
-                
-                <div class="mt-4 flex gap-3">
-                    <button onclick="refreshPowerBIEmbed()" class="bg-yellow-500 text-white px-4 py-2 rounded-lg hover:bg-yellow-600 transition duration-150 text-sm">
-                        🔄 Refresh Power BI View
-                    </button>
-                    <a href="https://app.powerbi.com/view?r=eyJrIjoiNjYyYWM5ZDAtNTkwYy00ZjAxLWFmNzktYzkwM2E5MmRjYmQxIiwidCI6IjQzNGZmNzcyLWRmMTUtNDgxZi1hOWJmLWM5YTcxMjc1MzNiZSIsImMiOjEwfQ%3D%3D" 
-                       target="_blank" 
-                       class="bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition duration-150 text-sm">
-                        📊 Open in Power BI
-                    </a>
-                </div>
-                
-                <p class="text-xs text-gray-500 mt-3">
-                    <strong>Important:</strong> After uploading new data to OneDrive, you must manually refresh the Power BI dataset in the Power BI Service (Settings → Datasets → Refresh) for changes to appear in this report.
-                </p>
             </div>
         </section>
 
-    </div>
+        <!-- DEMAND PREDICTION SECTION -->
+        <section id="demand-prediction-content" class="section-content space-y-6">
+            <div class="card p-8 rounded-2xl">
+                <h2 class="text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent border-b-2 border-blue-200 pb-4 mb-6">🔮 AI Demand Prediction Tool</h2>
+                </p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                    <div>
+                        <label for="input-units-sold" class="block text-sm font-bold text-gray-700 mb-2">Units Sold</label>
+                        <input type="number" id="input-units-sold" value="200" min="0" class="mt-1 block w-full rounded-xl border-2 border-pink-200 focus:border-pink-500 focus:ring-pink-500 p-3 shadow-sm"/>
+                    </div>
+                    <div>
+                        <label for="input-units-ordered" class="block text-sm font-bold text-gray-700 mb-2">Units Ordered</label>
+                        <input type="number" id="input-units-ordered" value="250" min="0" class="mt-1 block w-full rounded-xl border-2 border-purple-200 focus:border-purple-500 focus:ring-purple-500 p-3 shadow-sm"/>
+                    </div>
+                    <div>
+                        <label for="input-promotion" class="block text-sm font-bold text-gray-700 mb-2">Promotion</label>
+                        <select id="input-promotion" class="mt-1 block w-full rounded-xl border-2 border-blue-200 focus:border-blue-500 focus:ring-blue-500 p-3 shadow-sm">
+                            <option value="0">0 (No Promotion)</option>
+                            <option value="1">1 (Active Promotion)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="input-epidemic" class="block text-sm font-bold text-gray-700 mb-2">Epidemic Status</label>
+                        <select id="input-epidemic" class="mt-1 block w-full rounded-xl border-2 border-orange-200 focus:border-orange-500 focus:ring-orange-500 p-3 shadow-sm">
+                            <option value="0">0 (Normal)</option>
+                            <option value="1">1 (Epidemic)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between gradient-blue p-8 rounded-2xl shadow-xl border-2 border-blue-300">
+                    <button id="predict-btn" class="px-10 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-bold rounded-full hover:from-blue-700 hover:to-cyan-700 transition duration-300 flex items-center justify-center shadow-lg transform hover:scale-105">
+                        <span id="predict-text" class="text-lg">🎯 Predict Demand</span>
+                        <div id="predict-spinner" class="spinner hidden ml-2 w-5 h-5"></div>
+                    </button>
+                    
+                    <div class="text-right">
+                        <p class="text-sm font-bold text-blue-800 mb-2">Predicted Demand</p>
+                        <div class="text-5xl font-black text-blue-900" id="prediction-output">--</div>
+                        <p class="text-xs text-blue-700 mt-2 font-medium" id="prediction-explanation">Enter values and click predict</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- POWER BI SECTION -->
+        <section id="powerbi-visualization-content" class="section-content space-y-6">
+            <div class="card p-8 rounded-2xl">
+                <h2 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-pink-600 bg-clip-text text-transparent border-b-2 border-orange-200 pb-4 mb-6">📊 Power BI Interactive Dashboard</h2>
+                <div class="text-center mb-6">
+                    <p class="text-gray-600 mb-4 text-lg">Explore detailed visualizations and trend analysis</p>
+                    <button onclick="document.getElementById('powerbi-frame').src=document.getElementById('powerbi-frame').src" class="px-8 py-4 bg-gradient-to-r from-orange-500 to-pink-500 text-white font-bold rounded-full hover:from-orange-600 hover:to-pink-600 transition duration-300 shadow-lg transform hover:scale-105">
+                        🔄 Refresh Dashboard
+                    </button>
+                </div>
+                <div class="mt-6 border-4 border-orange-200 rounded-2xl overflow-hidden powerbi-container shadow-xl">
+                    <iframe id="powerbi-frame" src="https://app.powerbi.com/view?r=eyJrIjoiYmY2Y2NmZjctODE2OS00N2FlLWFhY2ItZTJlNjAxMzg1M2UxIiwidCI6ImZkMjA2NzE1LTc1MDktNGFlNS05Yjk2LTc2YmI5Nzg4NmE4NCIsImMiOjEwfQ%3D%3D"
+                            title="Power BI Dashboard" 
+                            frameborder="0" 
+                            allowFullScreen="true">
+                    </iframe>
+                </div>
+            </div>
+        </section>
+
+    </main>
 
     <script>
-        // Configuration
-        const API_BASE_URL = 'http://localhost:5000';
-        
-        function refreshPowerBIEmbed() {
-            const iframe = document.getElementById('powerbi-embed');
-            const currentSrc = iframe.src;
-            let newSrc = currentSrc.replace(/&v=\d+/, '');
-            newSrc = newSrc.includes('?') ? newSrc + '&v=' + new Date().getTime() : newSrc + '?v=' + new Date().getTime();
-            iframe.src = newSrc;
-        }
+        const API_BASE_URL = 'http://localhost:5000/api';
 
-        async function uploadFile() {
-            const fileInput = document.getElementById('data-file');
-            const statusDiv = document.getElementById('status-message');
+        document.addEventListener('DOMContentLoaded', function() {
+            const navItems = document.querySelectorAll('.nav-item');
+            const sections = document.querySelectorAll('.section-content');
+            const pageTitle = document.getElementById('page-title');
+            const connectionStatus = document.getElementById('connection-status');
             const uploadBtn = document.getElementById('upload-btn');
-            
-            const formData = new FormData();
-            if (fileInput.files.length > 0) {
-                formData.append('file', fileInput.files[0]);
-            }
-
-            statusDiv.className = 'status-message mt-4 text-sm font-medium text-indigo-500';
-            statusDiv.innerHTML = '🔄 Processing file and running analysis...';
-            uploadBtn.disabled = true;
-
-            try {
-                const response = await fetch(API_BASE_URL + '/api/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const result = await response.json();
-                uploadBtn.disabled = false;
-
-                if (response.ok) {
-                    statusDiv.className = 'status-message mt-4 text-sm font-medium text-green-600';
-                    statusDiv.innerHTML = `✅ ${result.message}`;
-                    renderAnalysis(result.analysis_summary);
-                    refreshPowerBIEmbed();
-                } else {
-                    statusDiv.className = 'status-message mt-4 text-sm font-medium text-red-600';
-                    statusDiv.innerHTML = `❌ Server Error: ${result.error || 'Unknown error'}`;
-                }
-            } catch (error) {
-                uploadBtn.disabled = false;
-                statusDiv.className = 'status-message mt-4 text-sm font-medium text-red-600';
-                statusDiv.innerHTML = `❌ Network Error: Could not connect to server`;
-            }
-        }
-
-        async function runPrediction() {
-            const unitsOrdered = parseFloat(document.getElementById('units-ordered-input').value);
-            const price = parseFloat(document.getElementById('price-input').value);
-            const promotion = parseInt(document.getElementById('promotion-input').value);
-            const epidemic = parseInt(document.getElementById('epidemic-input').value);
-
+            const dataFile = document.getElementById('data-file');
+            const uploadStatus = document.getElementById('upload-status');
+            const uploadText = document.getElementById('upload-text');
+            const uploadSpinner = document.getElementById('upload-spinner');
+            const refreshInsightsBtn = document.getElementById('refresh-insights-btn');
             const predictBtn = document.getElementById('predict-btn');
-            const demandOutput = document.getElementById('predicted-demand-output');
-            const explanationOutput = document.getElementById('prediction-explanation');
+            const predictText = document.getElementById('predict-text');
+            const predictSpinner = document.getElementById('predict-spinner');
 
-            predictBtn.disabled = true;
-            demandOutput.textContent = '...Calculating...';
-            explanationOutput.textContent = '';
+            function updateMetric(id, value, fallback) {
+                fallback = fallback || 'N/A';
+                const element = document.getElementById(id);
+                if (element) {
+                    element.textContent = value || fallback;
+                }
+            }
 
-            try {
-                const response = await fetch(API_BASE_URL + '/api/predict', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        units_ordered: unitsOrdered, 
-                        price: price, 
-                        promotion: promotion, 
-                        epidemic: epidemic 
-                    })
+            function displayDataHealth(health) {
+                if (!health) return;
+                updateMetric('health-total-rows', health.total_rows, '0');
+                updateMetric('health-total-cols', health.total_columns, '0');
+                updateMetric('health-missing', health.missing_summary, 'None');
+            }
+
+            function displayAnalysisData(analysis) {
+                if (!analysis) return;
+
+                if (analysis.promotion_roi) {
+                    updateMetric('metric-promo-roi', analysis.promotion_roi.roi_percentage);
+                    updateMetric('metric-promo-with', analysis.promotion_roi.avg_revenue_with_promo);
+                    updateMetric('metric-promo-without', analysis.promotion_roi.avg_revenue_without_promo);
+                }
+
+                if (analysis.forecast_accuracy) {
+                    updateMetric('metric-forecast-accuracy', analysis.forecast_accuracy.forecast_accuracy);
+                    updateMetric('metric-forecast-error', analysis.forecast_accuracy.avg_error);
+                }
+
+                if (analysis.regional_performance) {
+                    updateMetric('metric-top-region', analysis.regional_performance.top_region);
+                    updateMetric('metric-revenue-per-unit', analysis.regional_performance.revenue_per_unit);
+                }
+
+                if (analysis.epidemic_impact) {
+                    updateMetric('metric-epidemic-units', analysis.epidemic_impact.units_sold_impact);
+                    updateMetric('metric-epidemic-revenue', analysis.epidemic_impact.revenue_impact);
+                }
+
+                if (analysis.pricing_effectiveness) {
+                    updateMetric('metric-price-correlation', analysis.pricing_effectiveness.price_correlation);
+                    updateMetric('metric-optimal-price', analysis.pricing_effectiveness.optimal_price_range);
+                }
+
+                if (analysis.category_trends) {
+                    updateMetric('metric-trending-up', analysis.category_trends.trending_up);
+                    updateMetric('metric-trending-down', analysis.category_trends.trending_down);
+                }
+            }
+
+            function showSection(sectionId) {
+                sections.forEach(function(sec) {
+                    sec.classList.remove('active');
                 });
-
-                const result = await response.json();
-                predictBtn.disabled = false;
-
-                if (response.ok) {
-                    demandOutput.textContent = result.predicted_demand;
-                    explanationOutput.textContent = result.explanation;
-                } else {
-                    demandOutput.textContent = 'ERROR';
-                    explanationOutput.textContent = result.error;
-                }
-            } catch (error) {
-                predictBtn.disabled = false;
-                demandOutput.textContent = 'NETWORK ERROR';
-                explanationOutput.textContent = 'Could not reach prediction server';
-            }
-        }
-
-        function renderAnalysis(analysis) {
-            const container = document.getElementById('analysis-container');
-            const loadingMessage = document.getElementById('initial-loading-message');
-
-            if (loadingMessage) {
-                loadingMessage.remove();
+                navItems.forEach(function(item) {
+                    item.classList.remove('active');
+                });
+                
+                const targetSection = document.getElementById(sectionId + '-content');
+                const targetNav = document.querySelector('[data-section="' + sectionId + '"]');
+                
+                if (targetSection) targetSection.classList.add('active');
+                if (targetNav) targetNav.classList.add('active');
+                
+                let title = "Dashboard";
+                if (sectionId === "data-management") title = "Data Upload";
+                else if (sectionId === "insights-analysis") title = "Business Insights";
+                else if (sectionId === "demand-prediction") title = "Demand Predictor";
+                else if (sectionId === "powerbi-visualization") title = "Power BI Dashboard";
+                
+                pageTitle.textContent = title;
             }
 
-            if (!analysis.metrics || analysis.metrics.total_rows === "0") {
-                container.innerHTML = '<div class="col-span-full text-center py-10 text-gray-500">No valid data found</div>';
-                return;
-            }
-
-            container.innerHTML = '';
-            
-            let missingHtml = analysis.metrics.missing_summary.map(m => `
-                <p class="text-xs text-gray-500 mt-1">
-                    ${m.column}: <strong>${m.summary}</strong>
-                </p>
-            `).join('');
-
-            let top5GapHtml = analysis.alerts.top5_demand_gap.map((g, index) => `
-                <p class="text-xs text-red-500 font-semibold mt-1">
-                    ${index + 1}. ${g}
-                </p>
-            `).join('');
-            if (analysis.alerts.top5_demand_gap.length === 0 || analysis.alerts.top5_demand_gap[0].includes('N/A')) {
-                top5GapHtml = '<p class="text-xs text-gray-500 mt-1">No gaps found</p>';
-            }
-
-            const promoInterpretation = analysis.promotion.interpretation;
-            let promoColor = 'border-gray-400';
-            if (promoInterpretation.includes('สูงมาก')) promoColor = 'border-green-500';
-            else if (promoInterpretation.includes('ปานกลาง')) promoColor = 'border-yellow-500';
-            else if (promoInterpretation.includes('ติดลบ')) promoColor = 'border-red-500';
-
-            const cards = [
-                { 
-                    title: "Data Health Check", 
-                    value: analysis.metrics.total_rows, 
-                    unit: "Rows", 
-                    color: "border-indigo-500",
-                    description: "Total rows processed",
-                    extra: missingHtml,
-                },
-                { 
-                    title: "Rolling Avg (Revenue)", 
-                    value: analysis.metrics.rolling_avg_revenue, 
-                    unit: "30D", 
-                    color: "border-blue-500",
-                    description: "30-day rolling average revenue" 
-                },
-                { 
-                    title: "Demand Gap Alert (Top 5)", 
-                    value: "TOP 5 PRODUCTS", 
-                    unit: "Gap", 
-                    color: "border-red-500",
-                    description: "Products with highest demand-supply gap",
-                    extra: top5GapHtml
-                },
-                { 
-                    title: "Price Elasticity", 
-                    value: analysis.elasticity.price_coefficient, 
-                    unit: analysis.elasticity.elasticity_group, 
-                    color: "border-yellow-500",
-                    description: analysis.elasticity.description
-                },
-                { 
-                    title: "Promotion Score", 
-                    value: analysis.promotion.score, 
-                    unit: "Effectiveness", 
-                    color: promoColor,
-                    description: analysis.promotion.interpretation
-                },
-                { 
-                    title: "Revenue Volatility", 
-                    value: analysis.volatility.volatility, 
-                    unit: "Std. Dev.", 
-                    color: "border-purple-500",
-                    description: analysis.volatility.description
-                },
-                { 
-                    title: "YoY Growth Rate", 
-                    value: analysis.yoy.yoy_growth, 
-                    unit: "Revenue Growth", 
-                    color: "border-teal-500",
-                    description: analysis.yoy.description
-                },
-                { 
-                    title: "Epidemic Revenue Impact", 
-                    value: analysis.metrics.epidemic_revenue, 
-                    unit: "Total", 
-                    color: "border-orange-500",
-                    description: "Revenue during epidemic periods"
-                }
-            ];
-
-            cards.forEach(card => {
-                const cardHtml = `
-                    <div class="card bg-white p-4 rounded-xl shadow-md ${card.color}">
-                        <div class="flex justify-between items-start">
-                            <h3 class="text-sm font-semibold text-gray-500 tooltip">
-                                ${card.title}
-                                <span class="tooltiptext">${card.description}</span>
-                            </h3>
-                            <span class="text-xs text-gray-400 font-medium">${card.unit}</span>
-                        </div>
-                        <p class="text-3xl font-extrabold text-gray-800 mt-2">${card.value}</p>
-                        ${card.extra ? '<div class="mt-2 pt-2 border-t border-gray-100">' + card.extra + '</div>' : ''}
-                    </div>
-                `;
-                container.innerHTML += cardHtml;
+            navItems.forEach(function(item) {
+                item.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const sectionId = item.getAttribute('data-section');
+                    showSection(sectionId);
+                });
             });
-        }
 
-        // Auto-load initial analysis on page load
-        window.onload = function() {
-            uploadFile();
-        };
+            async function checkConnection() {
+                try {
+                    const response = await fetch(API_BASE_URL + '/upload', {
+                        method: 'POST',
+                        body: new FormData()
+                    });
+                    if (response.ok) {
+                        connectionStatus.className = 'text-sm px-4 py-2 rounded-full bg-green-100 text-green-700 font-bold shadow-md';
+                        connectionStatus.textContent = '✓ Connected';
+                        loadInitialData();
+                    } else {
+                        throw new Error('Server error');
+                    }
+                } catch (error) {
+                    connectionStatus.className = 'text-sm px-4 py-2 rounded-full bg-red-100 text-red-700 font-bold shadow-md';
+                    connectionStatus.textContent = '✗ Offline';
+                    console.error('Backend connection failed:', error);
+                }
+            }
+
+            async function loadInitialData() {
+                try {
+                    const response = await fetch(API_BASE_URL + '/upload', {
+                        method: 'POST',
+                        body: new FormData()
+                    });
+                    const data = await response.json();
+                    if (data.analysis_summary) {
+                        displayAnalysisData(data.analysis_summary);
+                    }
+                    if (data.data_health) {
+                        displayDataHealth(data.data_health);
+                    }
+                } catch (error) {
+                    console.error('Error loading initial data:', error);
+                }
+            }
+
+            dataFile.addEventListener('change', function() {
+                uploadBtn.disabled = !dataFile.files.length;
+            });
+
+            uploadBtn.addEventListener('click', async function() {
+                const file = dataFile.files[0];
+                if (!file) {
+                    uploadStatus.className = 'text-red-600 font-bold text-sm mt-4';
+                    uploadStatus.textContent = 'Please select a file first';
+                    return;
+                }
+
+                uploadText.textContent = 'Uploading...';
+                uploadSpinner.classList.remove('hidden');
+                uploadBtn.disabled = true;
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const response = await fetch(API_BASE_URL + '/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok && data.analysis_summary) {
+                        uploadStatus.className = 'text-green-600 font-bold text-sm mt-4';
+                        uploadStatus.textContent = '✅ ' + (data.message || 'Upload successful!');
+                        displayAnalysisData(data.analysis_summary);
+                        if (data.data_health) {
+                            displayDataHealth(data.data_health);
+                        }
+                    } else {
+                        uploadStatus.className = 'text-red-600 font-bold text-sm mt-4';
+                        uploadStatus.textContent = '❌ ' + (data.error || 'Upload failed');
+                    }
+                } catch (error) {
+                    uploadStatus.className = 'text-red-600 font-bold text-sm mt-4';
+                    uploadStatus.textContent = '❌ Error: ' + error.message;
+                    console.error('Upload error:', error);
+                }
+
+                uploadText.textContent = 'Upload & Process';
+                uploadSpinner.classList.add('hidden');
+                uploadBtn.disabled = false;
+            });
+            
+            refreshInsightsBtn.addEventListener('click', async function() {
+                refreshInsightsBtn.disabled = true;
+                try {
+                    const response = await fetch(API_BASE_URL + '/upload', {
+                        method: 'POST',
+                        body: new FormData()
+                    });
+                    const data = await response.json();
+                    if (data.analysis_summary) {
+                        displayAnalysisData(data.analysis_summary);
+                    }
+                } catch (error) {
+                    console.error('Refresh error:', error);
+                }
+                refreshInsightsBtn.disabled = false;
+            });
+
+            predictBtn.addEventListener('click', async function() {
+                predictText.textContent = '⏳ Calculating...';
+                predictSpinner.classList.remove('hidden');
+                predictBtn.disabled = true;
+                
+                const unitsSold = document.getElementById('input-units-sold').value;
+                const unitsOrdered = document.getElementById('input-units-ordered').value;
+                const promotion = document.getElementById('input-promotion').value;
+                const epidemic = document.getElementById('input-epidemic').value;
+
+                try {
+                    const response = await fetch(API_BASE_URL + '/predict', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            units_sold: parseFloat(unitsSold),
+                            units_ordered: parseFloat(unitsOrdered),
+                            promotion: parseInt(promotion),
+                            epidemic: parseInt(epidemic)
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok && data.predicted_demand) {
+                        document.getElementById('prediction-output').className = 'text-5xl font-black text-blue-900';
+                        document.getElementById('prediction-output').textContent = data.predicted_demand;
+                        document.getElementById('prediction-explanation').textContent = data.explanation;
+                    } else {
+                        document.getElementById('prediction-output').className = 'text-5xl font-black text-red-600';
+                        document.getElementById('prediction-output').textContent = 'Error';
+                        document.getElementById('prediction-explanation').textContent = data.error || 'Prediction failed';
+                    }
+                } catch (error) {
+                    document.getElementById('prediction-output').className = 'text-5xl font-black text-red-600';
+                    document.getElementById('prediction-output').textContent = 'Error';
+                    document.getElementById('prediction-explanation').textContent = error.message;
+                    console.error('Prediction error:', error);
+                }
+                
+                predictText.textContent = '🎯 Predict Demand';
+                predictSpinner.classList.add('hidden');
+                predictBtn.disabled = false;
+            });
+            
+            showSection('data-management');
+            checkConnection();
+        });
     </script>
 </body>
 </html>
