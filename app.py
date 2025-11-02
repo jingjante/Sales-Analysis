@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import pandas as pd
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, render_template, send_from_directory, jsonify, request
 from flask_cors import CORS
 import numpy as np
 import os
@@ -13,13 +13,10 @@ app = Flask(__name__)
 CORS(app)
 DATA_DIR = 'data'
 LIVE_DATA_PATH = os.path.join(DATA_DIR, 'live_data.csv')
-STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 
-# Configure Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- NEW FORMULA: Updated Coefficients ---
 # Predicted Demand = 33.7221 + 0.7439(Units Sold) + 0.0516(Units Ordered) + 8.6003(Promotion) − 14.5887(Epidemic)
 COEFFICIENTS = {
     'Intercept': 33.7221,
@@ -32,13 +29,6 @@ COEFFICIENTS = {
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
-# Create static directory if it doesn't exist
-if not os.path.exists(STATIC_DIR):
-    os.makedirs(STATIC_DIR)
-    logger.warning(f"Static directory created at: {STATIC_DIR}")
-    logger.warning("Please place your index.html file in this directory!")
-
-# --- JSON Serialization Helper ---
 class NpEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
@@ -51,7 +41,6 @@ class NpEncoder(json.JSONEncoder):
             return None
         return super(NpEncoder, self).default(obj)
 
-# --- Column Name Mapping ---
 def normalize_column_names(df):
     """
     Normalizes column names to handle variations like:
@@ -75,19 +64,16 @@ def normalize_column_names(df):
         'Date': ['date', 'transaction date', 'sale date', 'order date']
     }
     
-    # Get actual column names from dataframe (lowercase for comparison)
     actual_columns = {col.lower().strip(): col for col in df.columns}
     
-    # Try to match each pattern
     for target_name, variations in patterns.items():
         for variation in variations:
             if variation in actual_columns:
                 original_col = actual_columns[variation]
-                if original_col != target_name:  # Only map if different
+                if original_col != target_name:  
                     column_mapping[original_col] = target_name
                 break
     
-    # Apply mapping
     if column_mapping:
         logger.info(f"Column mapping applied: {column_mapping}")
         df = df.rename(columns=column_mapping)
@@ -128,7 +114,6 @@ def create_initial_data():
         return True
     return False
 
-# --- Helper function to safely get numeric columns ---
 def safe_numeric_column(df, col_name):
     """Converts column to numeric, handling errors gracefully."""
     if col_name not in df.columns:
@@ -138,7 +123,7 @@ def safe_numeric_column(df, col_name):
     except:
         return None
 
-# --- NEW ANALYSIS FUNCTIONS (NOT IN POWER BI) ---
+# --- ANALYSIS FUNCTIONS ---
 
 def calculate_data_health(df):
     """Data Health Check: Basic statistics about data quality."""
@@ -176,111 +161,6 @@ def calculate_data_health(df):
             "missing_summary": f"Error: {str(e)}"
         }
 
-def calculate_inventory_efficiency(df):
-    """F2: Calculates inventory turnover ratio and identifies slow-moving products."""
-    try:
-        if df.empty:
-            return {
-                "avg_turnover_ratio": "No data",
-                "slow_moving_products": "No data available"
-            }
-        
-        # Check required columns
-        if 'Units Sold' not in df.columns or 'Units Ordered' not in df.columns or 'Product_ID' not in df.columns:
-            return {
-                "avg_turnover_ratio": "Missing columns",
-                "slow_moving_products": "Requires: Units Sold, Units Ordered, Product_ID"
-            }
-        
-        df_copy = df.copy()
-        
-        # Convert to numeric
-        df_copy['Units Sold'] = safe_numeric_column(df_copy, 'Units Sold')
-        df_copy['Units Ordered'] = safe_numeric_column(df_copy, 'Units Ordered')
-        
-        # Remove rows with NaN values
-        df_copy = df_copy.dropna(subset=['Units Sold', 'Units Ordered'])
-        
-        if df_copy.empty:
-            return {
-                "avg_turnover_ratio": "No valid data",
-                "slow_moving_products": "No valid numeric data"
-            }
-        
-        # Calculate turnover ratio: Units Sold / Units Ordered
-        df_copy['Turnover_Ratio'] = df_copy['Units Sold'] / df_copy['Units Ordered'].replace(0, np.nan)
-        df_copy = df_copy.dropna(subset=['Turnover_Ratio'])
-        
-        if df_copy.empty:
-            return {
-                "avg_turnover_ratio": "Cannot calculate",
-                "slow_moving_products": "Division by zero or invalid data"
-            }
-        
-        avg_turnover = df_copy['Turnover_Ratio'].mean()
-        
-        # Identify slow-moving products (turnover < 0.5)
-        product_turnover = df_copy.groupby('Product_ID')['Turnover_Ratio'].mean()
-        slow_moving = product_turnover[product_turnover < 0.5].sort_values().head(5)
-        
-        slow_moving_text = []
-        for prod, ratio in slow_moving.items():
-            slow_moving_text.append(f"{prod} ({ratio:.2%})")
-        
-        return {
-            "avg_turnover_ratio": f"{avg_turnover:.2%}",
-            "slow_moving_products": "; ".join(slow_moving_text) if slow_moving_text else "All products moving well"
-        }
-    except Exception as e:
-        logger.error(f"Error in calculate_inventory_efficiency: {e}", exc_info=True)
-        return {
-            "avg_turnover_ratio": "Error",
-            "slow_moving_products": f"Calculation failed: {str(e)}"
-        }
-
-def calculate_stockout_risk(df):
-    """F3: Identifies products at risk of stockout (Demand > Units Ordered)."""
-    try:
-        if df.empty:
-            return {"high_risk_products": "No data available", "risk_count": "0"}
-        
-        # Check required columns
-        if 'Demand' not in df.columns or 'Units Ordered' not in df.columns or 'Product_ID' not in df.columns:
-            return {
-                "high_risk_products": "Missing columns", 
-                "risk_count": "0"
-            }
-        
-        df_copy = df.copy()
-        
-        # Convert to numeric
-        df_copy['Demand'] = safe_numeric_column(df_copy, 'Demand')
-        df_copy['Units Ordered'] = safe_numeric_column(df_copy, 'Units Ordered')
-        
-        # Remove rows with NaN
-        df_copy = df_copy.dropna(subset=['Demand', 'Units Ordered'])
-        
-        if df_copy.empty:
-            return {"high_risk_products": "No valid data", "risk_count": "0"}
-        
-        df_copy['Stockout_Risk'] = df_copy['Demand'] - df_copy['Units Ordered']
-        
-        # Get products where demand exceeds ordered units
-        at_risk = df_copy[df_copy['Stockout_Risk'] > 0].groupby('Product_ID')['Stockout_Risk'].sum()
-        high_risk = at_risk.sort_values(ascending=False).head(5)
-        
-        risk_text = []
-        for prod, risk_units in high_risk.items():
-            risk_text.append(f"{prod} ({int(risk_units)} units short)")
-        
-        return {
-            "high_risk_products": "; ".join(risk_text) if risk_text else "No stockout risks",
-            "risk_count": str(len(at_risk))
-        }
-    except Exception as e:
-        logger.error(f"Error in calculate_stockout_risk: {e}", exc_info=True)
-        return {"high_risk_products": f"Error: {str(e)}", "risk_count": "0"}
-
 def calculate_promotion_roi(df):
     """F4: Analyzes ROI of promotions by comparing revenue during promo vs non-promo periods."""
     try:
@@ -291,7 +171,6 @@ def calculate_promotion_roi(df):
                 "roi_percentage": "N/A"
             }
         
-        # Check required columns
         if 'Promotion' not in df.columns or 'Revenue' not in df.columns:
             return {
                 "avg_revenue_with_promo": "Missing columns",
@@ -301,11 +180,9 @@ def calculate_promotion_roi(df):
         
         df_copy = df.copy()
         
-        # Convert to numeric
         df_copy['Promotion'] = safe_numeric_column(df_copy, 'Promotion')
         df_copy['Revenue'] = safe_numeric_column(df_copy, 'Revenue')
         
-        # Remove rows with NaN
         df_copy = df_copy.dropna(subset=['Promotion', 'Revenue'])
         
         if df_copy.empty:
@@ -352,17 +229,14 @@ def calculate_demand_forecast_accuracy(df):
         if df.empty:
             return {"forecast_accuracy": "N/A", "avg_error": "N/A"}
         
-        # Check required columns
         if 'Demand' not in df.columns or 'Units Sold' not in df.columns:
             return {"forecast_accuracy": "Missing columns", "avg_error": "N/A"}
         
         df_copy = df.copy()
         
-        # Convert to numeric
         df_copy['Demand'] = safe_numeric_column(df_copy, 'Demand')
         df_copy['Units Sold'] = safe_numeric_column(df_copy, 'Units Sold')
         
-        # Remove rows with NaN
         df_copy = df_copy.dropna(subset=['Demand', 'Units Sold'])
         
         if df_copy.empty:
@@ -371,7 +245,6 @@ def calculate_demand_forecast_accuracy(df):
         df_copy['Forecast_Error'] = abs(df_copy['Demand'] - df_copy['Units Sold'])
         df_copy['Accuracy'] = 1 - (df_copy['Forecast_Error'] / df_copy['Demand'].replace(0, np.nan))
         
-        # Remove infinite or NaN accuracy values
         df_copy = df_copy.replace([np.inf, -np.inf], np.nan).dropna(subset=['Accuracy'])
         
         if df_copy.empty:
@@ -394,17 +267,14 @@ def calculate_regional_performance(df):
         if df.empty:
             return {"top_region": "N/A", "revenue_per_unit": "N/A"}
         
-        # Check required columns
         if 'Region' not in df.columns or 'Revenue' not in df.columns or 'Units Sold' not in df.columns:
             return {"top_region": "Missing columns", "revenue_per_unit": "N/A"}
         
         df_copy = df.copy()
         
-        # Convert to numeric
         df_copy['Revenue'] = safe_numeric_column(df_copy, 'Revenue')
         df_copy['Units Sold'] = safe_numeric_column(df_copy, 'Units Sold')
         
-        # Remove rows with NaN
         df_copy = df_copy.dropna(subset=['Region', 'Revenue', 'Units Sold'])
         
         if df_copy.empty:
@@ -441,7 +311,6 @@ def calculate_epidemic_impact_analysis(df):
                 "revenue_impact": "N/A"
             }
         
-        # Check required columns
         if 'Epidemic' not in df.columns:
             return {
                 "units_sold_impact": "Missing Epidemic column",
@@ -450,7 +319,6 @@ def calculate_epidemic_impact_analysis(df):
         
         df_copy = df.copy()
         
-        # Convert to numeric
         df_copy['Epidemic'] = safe_numeric_column(df_copy, 'Epidemic')
         
         if 'Units Sold' in df_copy.columns:
@@ -458,7 +326,6 @@ def calculate_epidemic_impact_analysis(df):
         if 'Revenue' in df_copy.columns:
             df_copy['Revenue'] = safe_numeric_column(df_copy, 'Revenue')
         
-        # Remove rows with NaN
         df_copy = df_copy.dropna(subset=['Epidemic'])
         
         if df_copy.empty:
@@ -507,17 +374,14 @@ def calculate_pricing_effectiveness(df):
         if df.empty:
             return {"price_correlation": "N/A", "optimal_price_range": "N/A"}
         
-        # Check required columns
         if 'Price' not in df.columns or 'Units Sold' not in df.columns:
             return {"price_correlation": "Missing columns", "optimal_price_range": "N/A"}
         
         df_copy = df.copy()
-        
-        # Convert to numeric
+
         df_copy['Price'] = safe_numeric_column(df_copy, 'Price')
         df_copy['Units Sold'] = safe_numeric_column(df_copy, 'Units Sold')
         
-        # Remove rows with NaN
         df_copy = df_copy.dropna(subset=['Price', 'Units Sold'])
         
         if df_copy.empty or len(df_copy) < 2:
@@ -552,7 +416,6 @@ def calculate_category_trends(df):
         if df.empty:
             return {"trending_up": "N/A", "trending_down": "N/A"}
         
-        # Check required columns
         if 'Category' not in df.columns or 'Date' not in df.columns or 'Units Sold' not in df.columns:
             return {"trending_up": "Missing columns", "trending_down": "N/A"}
         
@@ -562,7 +425,6 @@ def calculate_category_trends(df):
         df_copy['Date'] = pd.to_datetime(df_copy['Date'], errors='coerce')
         df_copy['Units Sold'] = safe_numeric_column(df_copy, 'Units Sold')
         
-        # Remove rows with NaN
         df_copy = df_copy.dropna(subset=['Date', 'Category', 'Units Sold'])
         
         if df_copy.empty:
@@ -640,23 +502,6 @@ def run_analysis(df):
     }
 
 # --- API Routes ---
-@app.route('/')
-def index():
-    """Serve the main dashboard HTML file"""
-    try:
-        return send_from_directory(STATIC_DIR, 'index.html')
-    except Exception as e:
-        logger.error(f"Error serving index.html: {e}")
-        return f"Error: Could not find index.html. Please make sure it exists in the static folder. Error: {str(e)}", 404
-
-@app.route('/static/<path:filename>')
-def serve_static(filename):
-    """Serve static files"""
-    try:
-        return send_from_directory(STATIC_DIR, filename)
-    except Exception as e:
-        return f"File not found: {filename}", 404
-
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
     logger.info("Received request to /api/upload")
@@ -666,7 +511,7 @@ def upload_file():
         if os.path.exists(LIVE_DATA_PATH) and os.path.getsize(LIVE_DATA_PATH) > 0:
             try:
                 df = pd.read_csv(LIVE_DATA_PATH)
-                df = normalize_column_names(df)  # Normalize column names
+                df = normalize_column_names(df)
                 logger.info(f"Loaded {len(df)} rows from existing file")
                 logger.info(f"Columns: {df.columns.tolist()}")
                 analysis_summary = run_analysis(df)
@@ -685,7 +530,7 @@ def upload_file():
                 logger.error(f"Error reading existing file: {e}", exc_info=True)
                 create_initial_data()
                 df = pd.read_csv(LIVE_DATA_PATH)
-                df = normalize_column_names(df)  # Normalize column names
+                df = normalize_column_names(df)
                 analysis_summary = run_analysis(df)
                 data_health = calculate_data_health(df)
                 response_data = {
@@ -699,10 +544,9 @@ def upload_file():
                     mimetype='application/json'
                 )
         
-        # No file exists, create dummy data
         create_initial_data()
         df = pd.read_csv(LIVE_DATA_PATH)
-        df = normalize_column_names(df)  # Normalize column names
+        df = normalize_column_names(df)
         analysis_summary = run_analysis(df)
         data_health = calculate_data_health(df)
         response_data = {
@@ -775,7 +619,6 @@ def predict_demand():
         if any(v is None for v in [units_sold, units_ordered, promotion, epidemic]):
             return jsonify({"error": "Missing or invalid input parameters"}), 400
 
-        # NEW FORMULA
         prediction = (
             COEFFICIENTS['Intercept'] +
             (COEFFICIENTS['Units Sold'] * units_sold) +
@@ -802,23 +645,7 @@ def predict_demand():
         return jsonify({"error": f"Prediction failed: {str(e)}"}), 400
 
 # --- Run Server ---
-if __name__ == '__main__':
-    create_initial_data()
-    
-    try:
-        if os.path.exists(LIVE_DATA_PATH) and os.path.getsize(LIVE_DATA_PATH) > 0:
-            df_initial = pd.read_csv(LIVE_DATA_PATH)
-            df_initial = normalize_column_names(df_initial)  # Normalize column names
-            logger.info(f"Initial data loaded: {len(df_initial)} rows")
-            logger.info(f"Columns available: {df_initial.columns.tolist()}")
-            run_analysis(df_initial)
-            logger.info("Initial analysis completed successfully")
-    except Exception as e:
-        logger.warning(f"Could not load initial data: {e}")
-        
-    logger.info(f"Flask server starting. Data path: {LIVE_DATA_PATH}")
-    
-    # Use environment variable for port (Render requirement)
-    port = int(os.environ.get('PORT', 5000))
-    logger.info(f"Server will run on port {port}")
-    app.run(debug=False, host='0.0.0.0', port=port)
+if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", 5000))  # ใช้ PORT ที่ Render กำหนด ถ้าไม่มีใช้ 5000
+    app.run(host="0.0.0.0", port=port, debug=False)
