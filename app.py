@@ -645,7 +645,20 @@ def predict_demand():
         return jsonify({"error": f"Prediction failed: {str(e)}"}), 400
 
 # --- Run Server ---
-if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 5000))  # ใช้ PORT ที่ Render กำหนด ถ้าไม่มีใช้ 5000
-    app.run(host="0.0.0.0", port=port, debug=False)
+if __name__ == '__main__':
+    create_initial_data()
+    
+    try:
+        if os.path.exists(LIVE_DATA_PATH) and os.path.getsize(LIVE_DATA_PATH) > 0:
+            df_initial = pd.read_csv(LIVE_DATA_PATH)
+            df_initial = normalize_column_names(df_initial)
+            logger.info(f"Initial data loaded: {len(df_initial)} rows")
+            logger.info(f"Columns available: {df_initial.columns.tolist()}")
+            run_analysis(df_initial)
+            logger.info("Initial analysis completed successfully")
+    except Exception as e:
+        logger.warning(f"Could not load initial data: {e}")
+        
+    logger.info(f"Flask server starting. Data path: {LIVE_DATA_PATH}")
+    logger.info("Server will run on http://0.0.0.0:5000")
+    app.run(debug=True, host='0.0.0.0', port=5000)
